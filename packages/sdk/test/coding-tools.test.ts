@@ -66,19 +66,6 @@ describe("coding tools", () => {
       yield* Effect.sleep("1500 millis")
       expect(fs.existsSync(marker)).toBe(false)
     }))
-
-  it.live("grep, find and ls", () =>
-    Effect.gen(function*() {
-      const cwd = tmp()
-      fs.mkdirSync(path.join(cwd, "src"))
-      fs.writeFileSync(path.join(cwd, "src/a.ts"), "export const needle = 1\n")
-      fs.writeFileSync(path.join(cwd, "src/b.md"), "no match here\n")
-      fs.writeFileSync(path.join(cwd, ".hidden"), "needle\n")
-      expect((yield* call("grep", { pattern: "needle", glob: "*.ts" }, cwd)).content).toBe("./src/a.ts:1:export const needle = 1")
-      expect((yield* call("grep", { pattern: "zzz" }, cwd)).content).toBe("No matches found")
-      expect((yield* call("find", { pattern: "**/*.ts" }, cwd)).content).toBe("src/a.ts")
-      expect((yield* call("ls", {}, cwd)).content).toBe(".hidden\nsrc/")
-    }))
 })
 
 describe("context files", () => {

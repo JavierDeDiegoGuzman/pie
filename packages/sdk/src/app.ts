@@ -28,7 +28,7 @@ NodeRuntime.runMain(
     Pie.exitOnRestart,
     Effect.provide(Pie.layer({
       home,
-      seed: [...Pie.DEFAULT_SEED, "todo", "web", "web-chat"],
+      seed: [...Pie.DEFAULT_SEED, "web", "web-chat"],
       pluginOptions: { web: { cwd, ...(flag("port") ? { port: Number(flag("port")) } : {}) } },
       reload: (flag("reload") as "hot" | "restart" | undefined) ?? (process.env.PIE_SUPERVISED === "1" ? "restart" : "hot")
     })),

@@ -11,55 +11,21 @@
  *   /api/*       sessions, events, prompts, projections, plugins; /api/live is SSE
  *
  * The chat itself is a UI module of another plugin (web-chat), so it can be
- * replaced too. Options: port, host, token, cwd, model.
+ * replaced too. How to build UI with plugins: README.md next to this file.
+ * Options: port, host, token, cwd, model.
  */
 import { randomUUID } from "node:crypto"
 import * as fs from "node:fs"
 import * as http from "node:http"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
-import { Effect, Schema, Stream } from "effect"
-import { Plugin, WebAssets, defineTool } from "@pie/sdk"
+import { Effect, Stream } from "effect"
+import { Plugin, WebAssets } from "@pie/sdk"
 
 // The page and the browser SDK live next to this file: edit them like any plugin code.
 const here = path.dirname(fileURLToPath(import.meta.url))
 const SHELL = path.join(here, "shell.html")
 const UI_SDK = path.join(here, "ui-sdk.js")
-
-export const UI_GUIDE = `The web interface is made of plugins. A plugin adds a browser module with ctx.ui(fn); fn runs in the
-browser (it is serialized with toString, so it cannot use server variables) and receives the UI SDK:
-
-  html (htm tagged templates for Preact), useState, useEffect, useMemo, useRef, useCallback,
-  api.get(path) / api.post(path, body), onLive((type, data) => ...),
-  useSession(), setSession(id), useEvents(sessionId), useStreaming(sessionId), useProjection(sessionId, projectionId),
-  useTick(sessionId), Slot, EventView, rendererFor(type),
-  ui.slot(name, Component, { order }), ui.event(eventType, Component), ui.style(css)
-
-Slots: "header", "sidebar", "main", "panel" (right column). A component receives no props in slots; read the
-current session with useSession(). ui.event(type, C) renders events of that type where the chat shows events
-(C gets { event }). Each module is isolated: if it throws, the page shows a banner with "remove" and "undo".
-
-API: GET /api/state, GET /api/sessions, POST /api/sessions {cwd?, model?}, GET /api/sessions/:id/events,
-GET /api/sessions/:id/state, POST /api/sessions/:id/prompt {text, mode: "prompt"|"steer"|"followUp"},
-POST /api/sessions/:id/abort, POST /api/sessions/:id/navigate {eventId},
-GET /api/sessions/:id/projections/:projectionId -> { value }, GET /api/plugins, POST /api/plugins/undo.
-
-Example (a panel with the todo list of the todo plugin):
-
-export default Plugin.define({
-  id: "todo-panel",
-  setup: (ctx) => ctx.ui(({ html, ui, useSession, useProjection }) => {
-    const Todos = () => {
-      const session = useSession()
-      const state = useProjection(session, "todo")
-      if (!state) return null
-      return html\`<h3>Todos</h3><ul>\${state.items.map((i) => html\`<li>\${i.done ? "✓" : "○"} \${i.text}</li>\`)}</ul>\`
-    }
-    ui.slot("panel", Todos)
-  })
-})
-
-You cannot see the page: after changing the UI, ask the user to check it.`
 
 const json = (res: http.ServerResponse, status: number, body: unknown) => {
   res.writeHead(status, { "content-type": "application/json; charset=utf-8" })
@@ -211,14 +177,17 @@ export default Plugin.define({
         if (url.pathname === "/api/client-errors" && method === "POST") {
           const body = await readBody(req)
           await run(Effect.logWarning(`web: UI module "${body.owner}" failed in the browser: ${String(body.message).slice(0, 500)}`))
-          clientErrors.push({ owner: String(body.owner), message: String(body.message).slice(0, 2000), at: Date.now() })
-          if (clientErrors.length > 20) clientErrors.shift()
+          if (errorLog !== undefined) {
+            const entry = { at: new Date().toISOString(), owner: String(body.owner), message: String(body.message).slice(0, 2000) }
+            fs.appendFile(errorLog, JSON.stringify(entry) + "\n", () => {})
+          }
           return json(res, 200, { ok: true })
         }
         return json(res, 404, { error: "not found" })
       }
 
-      const clientErrors: Array<{ owner: string; message: string; at: number }> = []
+      // Errors the browser reports, for the agent to read (see README.md).
+      const errorLog = ctx.pie.paths.home === undefined ? undefined : path.join(ctx.pie.paths.home, "web-errors.log")
 
       /**
        * Configuration changes may replace this very plugin (and close this server), so answer first and apply
@@ -252,27 +221,5 @@ export default Plugin.define({
       const address = `http://${hostname}:${port}/?token=${token}`
       process.stderr.write(`Pie web: ${address}\n`)
 
-      yield* ctx.tools.transform((tools) => {
-        tools.set("web_inspect", defineTool({
-          name: "web_inspect",
-          description: "How the web interface is built and how to change it with a plugin: slots, UI SDK, API, current UI " +
-            "modules, projections and event types, and errors the browser reported. Call it before changing the UI.",
-          parameters: Schema.Struct({}),
-          idempotent: true,
-          execute: () =>
-            Effect.gen(function*() {
-              const registries = pie.registries
-              return {
-                content: [
-                  UI_GUIDE,
-                  `\nCurrent UI modules: ${[...(yield* registries.ui.get).keys()].join(", ") || "none"}`,
-                  `Projections: ${[...(yield* registries.projections.get).keys()].join(", ") || "none"}`,
-                  `Plugin event types: ${[...(yield* registries.eventTypes.get).keys()].join(", ") || "none"}`,
-                  `Recent browser errors: ${clientErrors.length === 0 ? "none" : JSON.stringify(clientErrors.slice(-5), null, 2)}`
-                ].join("\n")
-              }
-            })
-        }))
-      })
     })
 })

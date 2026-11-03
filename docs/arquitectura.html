@@ -38,7 +38,7 @@
 <div class="note"><code>model/requested</code> guarda el prompt del sistema y las tools ofrecidas: lo que ve el modelo está en el log. Los ids de evento son deterministas (run, turno, llamada), así que repetir un paso nunca duplica nada.</div></div>
 
 <h2>4 · Automodificación</h2>
-<p class="lead">El SDK es fijo; cada plugin es una carpeta en <code>.pie/plugins/</code> que el agente edita con sus tools normales y aplica con <code>restart</code>. Cada restart guarda una instantánea completa de la carpeta; volver a cualquiera es <code>plugin_rollback</code> (o <code>pie rollback</code> desde la terminal, o el supervisor si Pie no arranca).</p>
+<p class="lead">El SDK es fijo; cada plugin es una carpeta en <code>.pie/plugins/</code> que el agente edita con sus tools normales y aplica con <code>restart</code>. Cada restart guarda una instantánea completa de la carpeta; volver a cualquiera es <code>pie rollback</code> (el agente lo lanza con bash; también desde la web, o el supervisor si Pie no arranca).</p>
 <div class="box"><img class="diagram" src="diagramas/automodificacion.svg" alt="Automodificación"></div>
 
 <h2>5 · Qué se persiste</h2>

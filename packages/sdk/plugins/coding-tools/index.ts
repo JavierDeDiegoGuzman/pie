@@ -1,12 +1,15 @@
 /**
- * Built-in plugin: the coding tools, with pi's names, parameters and output
- * limits so models trained on pi-style harnesses feel at home.
+ * Built-in plugin: the agent's tools. Like pi, the model gets few tools and
+ * does the rest with bash; names, parameters and output limits follow pi so
+ * models trained on pi-style harnesses feel at home.
  *
- *   read · write · edit · bash · grep · find · ls
+ *   read · write · edit · bash · restart
  *
- * Paths are resolved against the session cwd. grep and find use ripgrep (rg).
+ * restart applies the agent's edits to the plugins folder (see the self
+ * plugin's guide); it lives here so it is always next to the tools that make
+ * those edits. Paths are resolved against the session cwd.
  *
- * Durability: read/grep/find/ls/write are naturally idempotent. edit is made
+ * Durability: read/write are naturally idempotent. edit is made
  * idempotent: if an oldText is gone but its newText is already present, that
  * replacement counts as applied, so a re-run after a crash converges instead of
  * failing. bash is not idempotent: after a crash mid-command the model is told
@@ -22,7 +25,6 @@ export const MAX_LINES = 2000
 /** Seconds; a command that never ends (e.g. find /) would otherwise block the run forever. */
 export const DEFAULT_BASH_TIMEOUT = 300
 export const MAX_BYTES = 50 * 1024
-const GREP_MAX_LINE = 500
 
 const resolve = (cwd: string, p: string | undefined) => path.resolve(cwd, p ?? ".")
 
@@ -31,7 +33,7 @@ const fail = (content: string): ToolOutput => ({ content, isError: true })
 const attempt = <A>(f: () => Promise<A>) =>
   Effect.tryPromise({ try: f, catch: (e) => (e instanceof Error ? e.message : String(e)) })
 
-/** Keeps the first lines/bytes (read, ls, find, grep). */
+/** Keeps the first lines/bytes (read). */
 const truncateHead = (lines: ReadonlyArray<string>, maxLines = MAX_LINES, maxBytes = MAX_BYTES) => {
   const out: Array<string> = []
   let bytes = 0
@@ -222,11 +224,11 @@ const bash = defineTool({
     `Output is truncated to last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB (whichever is hit first). Timeout: ${DEFAULT_BASH_TIMEOUT}s unless given.`,
   parameters: Schema.Struct({
     command: Schema.String.annotate({ description: "Bash command to execute" }),
-    timeout: Schema.optional(Schema.Number).annotate({ description: "Timeout in seconds (default 300)" })
+    timeout: Schema.optional(Schema.Int).annotate({ description: "Timeout in seconds (default 300)" })
   }),
   idempotent: false,
-  execute: ({ command, timeout }, { cwd }) =>
-    run("bash", ["-c", command], cwd, timeout ?? DEFAULT_BASH_TIMEOUT).pipe(
+  execute: ({ command, timeout = DEFAULT_BASH_TIMEOUT }, { cwd }) =>
+    run("bash", ["-c", command], cwd, timeout).pipe(
       Effect.map(({ code, output, timedOut }) => {
         const { text, truncated } = truncateTail(output.replace(/\n$/, ""))
         const notes = [
@@ -244,107 +246,34 @@ const bash = defineTool({
     )
 })
 
-const ripgrep = (args: ReadonlyArray<string>, cwd: string) =>
-  run("rg", args, cwd).pipe(
-    Effect.flatMap(({ code, output }) =>
-      code === 0 || code === 1 ? Effect.succeed(output) : Effect.fail(output.trim() || `rg exited with ${code}`)
-    )
-  )
-
-const grep = defineTool({
-  name: "grep",
-  description:
-    `Search file contents for a pattern. Returns matching lines with file paths and line numbers. Respects .gitignore. ` +
-    `Output is truncated to 100 matches or ${MAX_BYTES / 1024}KB (whichever is hit first). Long lines are truncated to ${GREP_MAX_LINE} chars.`,
-  parameters: Schema.Struct({
-    pattern: Schema.String.annotate({ description: "Search pattern (regex or literal string)" }),
-    path: Schema.optional(Schema.String).annotate({ description: "Directory or file to search (default: current directory)" }),
-    glob: Schema.optional(Schema.String).annotate({ description: "Filter files by glob pattern, e.g. '*.ts' or '**/*.spec.ts'" }),
-    ignoreCase: Schema.optional(Schema.Boolean).annotate({ description: "Case-insensitive search (default: false)" }),
-    literal: Schema.optional(Schema.Boolean).annotate({ description: "Treat pattern as literal string instead of regex (default: false)" }),
-    context: Schema.optional(Schema.Int).annotate({ description: "Number of lines to show before and after each match (default: 0)" }),
-    limit: Schema.optional(Schema.Int).annotate({ description: "Maximum number of matches to return (default: 100)" })
-  }),
-  idempotent: true,
-  execute: (p, { cwd }) => {
-    const args = ["--line-number", "--no-heading", "--color=never", "--hidden", "--glob", "!.git"]
-    if (p.ignoreCase) args.push("--ignore-case")
-    if (p.literal) args.push("--fixed-strings")
-    if (p.glob) args.push("--glob", p.glob)
-    if (p.context) args.push("--context", String(p.context))
-    args.push("--", p.pattern, p.path ?? ".")
-    return ripgrep(args, cwd).pipe(
-      Effect.map((output) => {
-        const limit = p.limit ?? 100
-        const all = output.split("\n").filter((l) => l.length > 0)
-        const lines = all.slice(0, limit).map((l) => (l.length > GREP_MAX_LINE ? l.slice(0, GREP_MAX_LINE) + "…" : l))
-        const head = truncateHead(lines)
-        const more = all.length > limit || head.truncated
-        return {
-          content: head.lines.length === 0 ? "No matches found" : head.lines.join("\n") + (more ? "\n[results truncated]" : "")
-        }
-      }),
-      Effect.catch((message) => Effect.succeed(fail(message)))
-    )
-  }
-})
-
-const find = defineTool({
-  name: "find",
-  description:
-    `Search for files by glob pattern. Returns matching file paths relative to the search directory. Respects .gitignore. ` +
-    `Output is truncated to 1000 results or ${MAX_BYTES / 1024}KB (whichever is hit first).`,
-  parameters: Schema.Struct({
-    pattern: Schema.String.annotate({
-      description: "Glob pattern to match files, e.g. '*.ts', '**/*.json', or 'src/**/*.spec.ts'"
-    }),
-    path: Schema.optional(Schema.String).annotate({ description: "Directory to search in (default: current directory)" }),
-    limit: Schema.optional(Schema.Int).annotate({ description: "Maximum number of results (default: 1000)" })
-  }),
-  idempotent: true,
-  execute: (p, { cwd }) =>
-    ripgrep(["--files", "--hidden", "--glob", "!.git", "--glob", p.pattern], resolve(cwd, p.path)).pipe(
-      Effect.map((output) => {
-        const all = output.split("\n").filter((l) => l.length > 0).sort()
-        const limit = p.limit ?? 1000
-        const head = truncateHead(all.slice(0, limit))
-        const more = all.length > limit || head.truncated
-        return { content: head.lines.length === 0 ? "No files found" : head.lines.join("\n") + (more ? "\n[results truncated]" : "") }
-      }),
-      Effect.catch((message) => Effect.succeed(fail(message)))
-    )
-})
-
-const ls = defineTool({
-  name: "ls",
-  description:
-    `List directory contents. Returns entries sorted alphabetically, with '/' suffix for directories. Includes dotfiles. ` +
-    `Output is truncated to 500 entries or ${MAX_BYTES / 1024}KB (whichever is hit first).`,
-  parameters: Schema.Struct({
-    path: Schema.optional(Schema.String).annotate({ description: "Directory to list (default: current directory)" }),
-    limit: Schema.optional(Schema.Int).annotate({ description: "Maximum number of entries to return (default: 500)" })
-  }),
-  idempotent: true,
-  execute: (p, { cwd }) =>
-    attempt(() => fs.readdir(resolve(cwd, p.path), { withFileTypes: true })).pipe(
-      Effect.map((entries) => {
-        const names = entries.map((e) => (e.isDirectory() ? `${e.name}/` : e.name)).sort((a, b) => a.localeCompare(b))
-        const limit = p.limit ?? 500
-        const head = truncateHead(names.slice(0, limit))
-        const more = names.length > limit || head.truncated
-        return { content: names.length === 0 ? "(empty directory)" : head.lines.join("\n") + (more ? "\n[entries truncated]" : "") }
-      }),
-      Effect.catch((message) => Effect.succeed(fail(message)))
-    )
-})
-
-export const tools = [read, write, edit, bash, grep, find, ls]
+export const tools = [read, write, edit, bash]
 
 export default Plugin.define({
   id: "coding-tools",
   setup: (ctx) =>
-    ctx.tools.transform((registry) => {
-      const disabled = Array.isArray(ctx.options.disable) ? ctx.options.disable : []
-      for (const tool of tools) if (!disabled.includes(tool.name)) registry.set(tool.name, tool)
+    Effect.gen(function*() {
+      const plugins = ctx.pie.plugins
+      const restart = defineTool({
+        name: "restart",
+        description:
+          "Apply your edits to the plugins folder: validates the changed plugins (nothing is applied if one fails, " +
+          "and you get the errors), records a snapshot that can be rolled back, then reloads Pie with them.",
+        parameters: Schema.Struct({ reason: Schema.String.annotate({ description: "What changed, for the history" }) }),
+        idempotent: true,
+        execute: ({ reason }) =>
+          plugins.restart(reason).pipe(
+            Effect.map(({ changed }) => ({
+              content: `${changed.length === 0 ? "No plugin changed since the last restart." : `Changed: ${changed.join(", ")}.`} ${
+                plugins.reload === "hot"
+                  ? "Applied: the changes are active from your next step."
+                  : "Pie restarts to apply them as soon as this step finishes; you continue right after."
+              }`
+            })),
+            Effect.catchTag("PluginRejected", (e) => Effect.succeed({ content: e.message, isError: true }))
+          )
+      })
+      yield* ctx.tools.transform((registry) => {
+        for (const tool of [...tools, restart]) registry.set(tool.name, tool)
+      })
     })
 })

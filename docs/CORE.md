@@ -23,6 +23,8 @@ defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
 
 ## Plugins
 
+Como pi, el modelo ve pocas tools (read, write, edit, bash y restart) y hace el resto con bash. Cómo escribir un plugin: `docs/PLUGINS.md`.
+
 Viven en `<home>/plugins/<id>/` (editables por el agente; se aplican con
 `restart`). Un hogar nuevo se siembra desde `packages/sdk/plugins/<id>/`.
 
@@ -31,10 +33,10 @@ Viven en `<home>/plugins/<id>/` (editables por el agente; se aplican con
 | `opencode-go` | Sí | Modelos de OpenCode Go |
 | `system-prompt` | Sí | Prompt base y entorno de la sesión |
 | `context-files` | Sí | `~/.pie/AGENTS.md` y `AGENTS.md`/`CLAUDE.md` de la raíz al cwd |
-| `coding-tools` | Sí | read, write, edit, bash (300 s por defecto), grep, find, ls |
-| `self` | Sí | restart, plugin_explain, plugin_rollback y la guía con las rutas |
-| `todo` | La app | Lista de tareas como eventos, con proyección, vista y panel web |
-| `web` | La app | Servidor local con token, API, SSE, `shell.html` con huecos y menú de recuperación, `web_inspect` |
+| `coding-tools` | Sí | Las tools del modelo, como pi: read, write, edit, bash (300 s por defecto) y restart |
+| `self` | Sí | Sin tools: la guía con las rutas (plugins, SDK, docs) y cómo ver o deshacer cambios con la CLI `pie` |
+| `todo` | No (plantilla de ejemplo) | Lista de tareas como eventos, con proyección, vista y panel web |
+| `web` | La app | Servidor local con token, API, SSE, `shell.html` con huecos y menú de recuperación; guía en su `README.md` |
 | `web-chat` | La app | El chat de la interfaz web |
 
 Plugins del host (en memoria, no editables desde la carpeta): `sdk-guard` y los
@@ -53,7 +55,7 @@ instantáneas de proyecciones.
 |---|---|
 | `test/core.test.ts` | `State`, `PluginHost`, carga desde archivos |
 | `test/agent.test.ts` | Bucle sobre el log: tools, busy, followUp, steer, nulls, ids repetidos, tool inexistente, hook que deniega, reintentos del modelo, abort; `todo` con bifurcación y adds paralelos; reacciones; automodificación (editar la carpeta + `restart`, rechazo de plugin roto, escritura en el SDK denegada) |
-| `test/coding-tools.test.ts` | Las 7 tools y `AGENTS.md` |
+| `test/coding-tools.test.ts` | read, write, edit, bash y `AGENTS.md` |
 | `test/durability.test.ts` | SIGKILL con SQLite en un proceso real: sin repetir el modelo, tool idempotente repetida, no idempotente «outcome unknown» |
 | `test/self-modify.test.ts` | Proceso real, plugins fuera del repo, modos hot y restart con supervisor |
 | `test/recovery.test.ts` | Instantáneas, rollback y deshacerlo, modo seguro, obligatorios, cambios hechos con Pie apagado; el supervisor revierte solo un plugin que tumba el arranque; la CLI ve y deshace |

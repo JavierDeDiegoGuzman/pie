@@ -15,10 +15,10 @@ flowchart TB
   end
   subgraph PLUGINS[".pie/plugins/ (carpetas que el agente edita)"]
     p1["opencode-go"]
-    p2["coding-tools"]
+    p2["coding-tools: read · write · edit · bash · restart"]
     p3["system-prompt · context-files"]
-    p4["self: restart · explain · rollback"]
-    p5["todo · web · web-chat · los del agente"]
+    p4["self: guía y rutas"]
+    p5["web · web-chat · los del agente"]
   end
   host --> api --> rt
   sup -. ejecuta .-> host
@@ -28,6 +28,6 @@ flowchart TB
   mgr --> host2 --> reg
   rt --> reg
   p1 & p2 & p3 & p4 & p5 --> host2
-  p4 -. restart .-> mgr
+  p2 -. restart .-> mgr
   guard --> host2
   wf --> log

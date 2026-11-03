@@ -108,7 +108,7 @@ registran como una instantánea nueva, así que también se pueden deshacer):
 | Vía | Cómo | Depende de plugins |
 |---|---|---|
 | Automática | Tras arrancar bien un rato, o al completar un run, se añade `config/good`. Si el proceso se cae dos veces seguidas nada más arrancar, el supervisor restaura la última buena | No |
-| Agente | `plugin_rollback`, `plugin_explain` | Sí (`self`) |
+| Agente | `pie explain` / `pie rollback` con bash, y luego `restart` | Sí (`coding-tools`) |
 | Interfaz web | Menú «Plugins y deshacer» y banner de módulo roto («Desactivar») | Sí (`web`) |
 | Terminal | `pie explain`, `pie rollback --to N` o `--last-good` (con `--home`) | No |
 | Modo seguro | `PIE_SAFE=1`: carga las plantillas del SDK en vez de la carpeta | No |
@@ -126,7 +126,7 @@ Los cambios hechos a mano con Pie apagado se registran al arrancar.
 - El chat es otro plugin (`web-chat`) y el panel de tareas lo aporta `todo`.
 - La página base (cabecera incluida) es `plugins/web/shell.html`: para
   cambiarla se edita ese archivo, no se tapa desde otro plugin con CSS.
-- El agente usa `web_inspect` antes de cambiar la UI.
+- Cómo se hace UI con plugins: `plugins/web/README.md`. Los errores de los módulos en el navegador se guardan en `<home>/web-errors.log`.
 - `pie serve --home .pie --cwd .` lanza la app bajo el supervisor.
 
 ## Workflows de Effect sobre la misma base de datos (`core/LogWorkflowEngine.ts`)
