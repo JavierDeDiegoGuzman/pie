@@ -1,24 +1,26 @@
 sequenceDiagram
   autonumber
   participant M as LLM
-  participant S as self (plugin_install)
+  participant F as .pie/plugins/
+  participant S as self (restart)
   participant P as Plugins
   participant C as Log de configuración
   participant H as PluginHost
   participant R as Runtime
-  M->>S: plugin_install(source)
-  S->>P: install(source)
-  P->>P: importar + setup en una composición desechable
-  alt error, o usa un punto de política
-    P-->>M: Plugin rejected: motivo (nada cambia)
-  else válido
-    P->>C: plugin/installed {id, código, hash}
+  M->>F: read / edit / write (p. ej. web/shell.html)
+  M->>S: restart(reason)
+  S->>P: restart
+  P->>P: importar + setup de los plugins cambiados en una composición desechable
+  alt alguno falla
+    P-->>M: nada aplicado, estos errores
+  else todos cargan
+    P->>C: plugins/snapshot {archivos, hash, motivo}
     alt modo hot
       P->>H: replace (Scope nuevo, cierra el viejo)
-      R->>M: siguiente llamada: la tool nueva ya está
+      R->>M: siguiente paso con los plugins nuevos
     else modo restart
       P->>R: drenar hasta un punto seguro
       R-->>R: liberar bloqueo, salir con 75
-      Note over R: el supervisor relanza, el proceso nuevo pliega el log de configuración y reanuda el run
+      Note over R: el supervisor relanza, carga la carpeta y reanuda el run. Si cae dos veces seguidas, restaura la última instantánea buena
     end
   end

@@ -6,18 +6,19 @@ flowchart TB
     rt["Runtime: tick<br/>plegar → decide → ejecutar → eventos"]
     agent["Agent<br/>evolve · decide · vista (puros)"]
     log[("Log de sesión<br/>árbol de eventos")]
-    cfg[("Log de configuración<br/>plugins instalados")]
-    mgr["Plugins<br/>validar · hot / restart · protegidos"]
+    cfg[("Log de configuración<br/>instantáneas de la carpeta")]
+    mgr["Plugins<br/>validar · instantánea · hot / restart · rollback"]
+    guard["sdk-guard<br/>el SDK es de solo lectura"]
     reg["Registries (State)<br/>tools · modelos · prompt · hooks · eventos · proyecciones · reacciones"]
     host2["PluginHost<br/>cada plugin en su Scope"]
     wf["LogWorkflowEngine<br/>workflows de Effect sobre la BD"]
   end
-  subgraph PLUGINS["Plugins (el agente puede escribirlos)"]
+  subgraph PLUGINS[".pie/plugins/ (carpetas que el agente edita)"]
     p1["opencode-go"]
     p2["coding-tools"]
     p3["system-prompt · context-files"]
-    p4["self (protegido)"]
-    p5["todo · los del agente"]
+    p4["self: restart · explain · rollback"]
+    p5["todo · web · web-chat · los del agente"]
   end
   host --> api --> rt
   sup -. ejecuta .-> host
@@ -27,5 +28,6 @@ flowchart TB
   mgr --> host2 --> reg
   rt --> reg
   p1 & p2 & p3 & p4 & p5 --> host2
-  p4 -. plugin_install .-> mgr
+  p4 -. restart .-> mgr
+  guard --> host2
   wf --> log
