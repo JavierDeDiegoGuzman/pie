@@ -2,7 +2,8 @@ import { NodeServices } from "@effect/platform-node"
 import { describe, expect, it } from "@effect/vitest"
 import { Effect, Layer, Schema } from "effect"
 import { LanguageModel, Tool, Toolkit } from "effect/ai"
-import { defineTool, OpenCodeGo, OpenCodeGoPlugin, Pie, Plugin, Storage } from "../src/index.ts"
+import OpenCodeGoPlugin from "../plugins/opencode-go/index.ts"
+import { defineTool, OpenCodeGo, Pie, Plugin, Storage } from "../src/index.ts"
 
 const Add = Tool.make("add", {
   description: "Add two integers",
@@ -45,7 +46,6 @@ describe.skipIf(process.env.PIE_LIVE !== "1")("Pie loop with OpenCode Go (live)"
     }).pipe(
       Effect.provide(Pie.layer({
         storage: Storage.memory,
-        selfModify: false,
         plugins: [
           OpenCodeGoPlugin,
           Plugin.define({

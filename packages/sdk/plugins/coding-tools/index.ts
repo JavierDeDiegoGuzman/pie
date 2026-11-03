@@ -16,9 +16,7 @@ import { spawn } from "node:child_process"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { Effect, Schema } from "effect"
-import { fileURLToPath } from "node:url"
-import * as Plugin from "../core/Plugin.ts"
-import { defineTool, type ToolOutput } from "../core/Registry.ts"
+import { Plugin, type ToolOutput, defineTool } from "@pie/sdk"
 
 export const MAX_LINES = 2000
 /** Seconds; a command that never ends (e.g. find /) would otherwise block the run forever. */
@@ -344,7 +342,6 @@ export const tools = [read, write, edit, bash, grep, find, ls]
 
 export default Plugin.define({
   id: "coding-tools",
-  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     ctx.tools.transform((registry) => {
       const disabled = Array.isArray(ctx.options.disable) ? ctx.options.disable : []

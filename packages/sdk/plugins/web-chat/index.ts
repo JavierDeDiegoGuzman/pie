@@ -2,12 +2,10 @@
  * Built-in plugin: the chat of the web interface, as a UI module (sidebar with
  * sessions, main with the conversation). Replaceable like any plugin.
  */
-import { fileURLToPath } from "node:url"
-import * as Plugin from "../core/Plugin.ts"
+import { Plugin } from "@pie/sdk"
 
 export default Plugin.define({
   id: "web-chat",
-  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     ctx.ui((sdk: any) => {
       const { api, EventView, html, rendererFor, setSession, ui, useEffect, useEvents, useRef, useSession, useState, useStreaming, useTick } = sdk

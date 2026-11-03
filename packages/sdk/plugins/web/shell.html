@@ -85,14 +85,14 @@ function Recovery({ onClose }) {
   if (!info) return html`<div class="pie-menu">…</div>`
   return html`<div class="pie-menu">
     <div style="display:flex;gap:8px;margin-bottom:8px">
-      <button disabled=${busy || info.head === 0} onClick=${() => act("/api/plugins/undo")}>Deshacer el último cambio</button>
+      <button disabled=${busy || !info.history.some((h) => h.type === "plugins/snapshot" && h.seq < info.head)} onClick=${() => act("/api/plugins/undo")}>Deshacer el último cambio</button>
       <button disabled=${busy || info.head === info.lastGood} onClick=${() => act("/api/plugins/rollback", { toSeq: info.lastGood, reason: "web: back to last good" })}>Volver a la última buena (#${info.lastGood})</button>
       <button onClick=${onClose}>Cerrar</button>
     </div>
     <div style="color:var(--muted);font-size:12px">Si la interfaz entera se rompe: <code>pie rollback --db … --last-good</code> o arranca con <code>PIE_SAFE=1</code>.</div>
     <ul style="padding-left:16px">${[...info.history].reverse().map((h) => html`<li>
-      <b>#${h.seq}</b> ${h.type} ${h.id ?? ""} ${h.version ? "@" + h.version.slice(0, 7) : ""} ${h.note ?? ""}
-      ${h.seq < info.head && h.type !== "config/good" ? html` <a href="#" onClick=${(e) => { e.preventDefault(); act("/api/plugins/rollback", { toSeq: h.seq, reason: "web: rollback" }) }}>volver aquí</a>` : ""}
+      <b>#${h.seq}</b> ${h.at.slice(0, 16).replace("T", " ")} · ${h.note}
+      ${h.seq < info.head && h.type === "plugins/snapshot" ? html` <a href="#" onClick=${(e) => { e.preventDefault(); act("/api/plugins/rollback", { toSeq: h.seq, reason: "web: rollback" }) }}>volver aquí</a>` : ""}
     </li>`)}</ul>
   </div>`
 }
@@ -116,7 +116,7 @@ function App() {
     <div style="display:flex;flex-direction:column;min-height:0">
       ${errors.map(([owner, message]) => html`<div class="pie-banner">
         <div style="flex:1"><b>El módulo de “${owner}” ha fallado.</b><pre>${message}</pre></div>
-        <button onClick=${() => api.post("/api/plugins/remove", { id: owner })}>Quitar ${owner}</button>
+        <button onClick=${() => api.post("/api/plugins/remove", { id: owner })}>Desactivar ${owner}</button>
         <button onClick=${() => api.post("/api/plugins/undo")}>Deshacer el último cambio</button>
       </div>`)}
       <div class="pie-body" style="flex:1;min-height:0">

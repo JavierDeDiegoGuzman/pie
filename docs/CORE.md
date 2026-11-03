@@ -12,7 +12,7 @@ defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
 | Programa del agente: eventos, `evolve`, `decide`, vista para el modelo | `core/Agent.ts` |
 | Runtime: tick, ejecución de comandos, reacciones, bloqueo por base de datos, drenaje | `core/Runtime.ts` |
 | Log de configuración de plugins | `core/ConfigLog.ts` |
-| Gestor de plugins: incluidos + instalados, validación, try/keep, rollback, modo seguro, obligatorios, hot/restart | `core/Plugins.ts` |
+| Gestor de plugins: carpeta + host, siembra, validación, instantáneas, restart, rollback, modo seguro, obligatorios | `core/Plugins.ts`, `core/PluginFolder.ts` |
 | Recuperación sin plugins (CLI y supervisor) | `core/Recovery.ts`, `cli.ts` |
 | `State` y `Composition`: registros que se reconstruyen | `core/State.ts` |
 | Registros: tools, modelos, prompt, hooks, tipos de evento, proyecciones, reacciones | `core/Registry.ts` |
@@ -23,20 +23,23 @@ defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
 
 ## Plugins
 
-| Plugin | Incluido por defecto | Qué hace |
+Viven en `<home>/plugins/<id>/` (editables por el agente; se aplican con
+`restart`). Un hogar nuevo se siembra desde `packages/sdk/plugins/<id>/`.
+
+| Plantilla | Sembrada por defecto | Qué hace |
 |---|---|---|
 | `opencode-go` | Sí | Modelos de OpenCode Go |
 | `system-prompt` | Sí | Prompt base y entorno de la sesión |
 | `context-files` | Sí | `~/.pie/AGENTS.md` y `AGENTS.md`/`CLAUDE.md` de la raíz al cwd |
-| `coding-tools` | Sí | read, write, edit, bash, grep, find, ls (parámetros y límites de pi) |
-| `self` | Sí | plugin_install, plugin_try, plugin_keep, plugin_explain, plugin_remove, plugin_enable, plugin_restore, plugin_rollback |
-| `todo` | No (lo usa `app.ts`) | Lista de tareas como eventos, con proyección, vista para el modelo y panel web |
-| `web` | No (lo usa `app.ts`) | Servidor local con token, API, SSE, página base con huecos y menú de recuperación, `web_inspect` |
-| `web-chat` | No (lo usa `app.ts`) | El chat de la interfaz web como módulo de UI |
+| `coding-tools` | Sí | read, write, edit, bash (300 s por defecto), grep, find, ls |
+| `self` | Sí | restart, plugin_explain, plugin_rollback y la guía con las rutas |
+| `todo` | La app | Lista de tareas como eventos, con proyección, vista y panel web |
+| `web` | La app | Servidor local con token, API, SSE, `shell.html` con huecos y menú de recuperación, `web_inspect` |
+| `web-chat` | La app | El chat de la interfaz web |
 
-Nada está protegido por defecto: la red de seguridad es el rollback (ver
-`docs/EVENTOS.md`). App lista para usar: `pie serve --db pie.db --cwd .`
-(`src/app.ts` bajo `src/Supervisor.ts`); recuperación: `src/cli.ts`.
+Plugins del host (en memoria, no editables desde la carpeta): `sdk-guard` y los
+que pase quien embebe Pie (`Pie.layer({ plugins })`, p. ej. modelos falsos en
+los tests). App lista para usar: `pie serve --home .pie --cwd .`.
 
 ## Pendiente
 

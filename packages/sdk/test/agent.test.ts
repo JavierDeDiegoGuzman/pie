@@ -1,7 +1,10 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Deferred, Effect, Schema } from "effect"
 import * as path from "node:path"
-import { defineTool, type LogEvent, Pie, Plugin, Storage, TodoPlugin } from "../src/index.ts"
+import * as fs from "node:fs"
+import TodoPlugin from "../plugins/todo/index.ts"
+import { defineTool, type LogEvent, Pie, Plugin } from "../src/index.ts"
+import { testHome } from "./support/home.ts"
 import { FAKE_MODEL, fakeModelPlugin, HANG, last, lastUserText, type Reply, toolResults } from "./support/fake-model.ts"
 
 const addTool = Plugin.define({
@@ -27,13 +30,9 @@ const mathScript = (messages: Messages): Reply => {
   return { tools: [{ name: "add", params: { a: 19, b: 23 } }] }
 }
 
-const cacheDirectory = path.join(import.meta.dirname, ".tmp", "plugin-cache")
+const run = <A, E>(effect: Effect.Effect<A, E, Pie.Pie>, plugins: ReadonlyArray<Plugin.Plugin>) =>
+  effect.pipe(Effect.provide(Pie.layer({ plugins })), Effect.scoped)
 
-const run = <A, E>(effect: Effect.Effect<A, E, Pie.Pie>, plugins: ReadonlyArray<Plugin.Plugin>, selfModify = false) =>
-  effect.pipe(
-    Effect.provide(Pie.layer({ storage: Storage.memory, plugins, selfModify, pluginCacheDirectory: cacheDirectory })),
-    Effect.scoped
-  )
 
 const CONVERSATION = new Set(["user", "model/responded", "tool/finished", "run/ended"])
 const conversation = (events: ReadonlyArray<LogEvent>) => events.filter((e) => CONVERSATION.has(e.type)).map((e) => e.type)
@@ -428,52 +427,87 @@ describe("plugin state as events", () => {
     ))
 })
 
-describe("self-modification through the configuration log", () => {
-  const sdk = path.join(import.meta.dirname, "..", "src", "index.ts")
-  const source = (body: string) => `
-import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from ${JSON.stringify(sdk)}
+describe("self-modification: edit the plugins folder, then restart", () => {
+  const plugin = (body: string) => `import { Effect, Schema } from "effect"
+import { Plugin, defineTool } from "@pie/sdk"
 export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
 `
-  const valid = source(`ctx.tools.transform((tools) => {
+  const valid = plugin(`ctx.tools.transform((tools) => {
     tools.set("word_count", defineTool({
       name: "word_count", description: "Count words", parameters: Schema.Struct({ text: Schema.String }), idempotent: true,
       execute: ({ text }) => Effect.succeed({ content: String(text.split(/\\s+/).filter(Boolean).length) })
     }))
   })`)
-  const notEffect = source(`(() => {})`)
-  const policy = source(`ctx.hook("tool.before", (e) => Effect.sync(() => { e.decision = { _tag: "Deny", reason: "mine" } }))`)
+  const notEffect = plugin(`(() => {})`)
 
-  it.live("installs a plugin mid-run (hot); rejects a broken one, one using a policy point, one whose setup is not an Effect", () =>
-    run(
-      Effect.gen(function*() {
-        const pie = yield* Pie.Pie
-        const session = yield* pie.create({ cwd: "/repo", model: FAKE_MODEL })
-        yield* session.prompt("teach yourself to count words")
-        yield* session.awaitIdle
-        const results = data<{ name: string; isError: boolean; content: string }>(yield* session.events, "tool/finished")
-        expect(results.map((r) => [r.name, r.isError])).toEqual([
-          ["plugin_install", true],
-          ["plugin_install", true],
-          ["plugin_install", true],
-          ["plugin_install", false],
-          ["word_count", false]
-        ])
-        expect(results[1]?.content).toContain("policy point")
-        expect(results[2]?.content).toContain("setup must return an Effect")
-        expect(results[4]?.content).toBe("3")
-      }),
-      [
-        fakeModelPlugin((messages) => {
-          const n = toolResults(messages).length
-          if (n === 0) return { tools: [{ name: "plugin_install", params: { source: "export default {{ broken" } }] }
-          if (n === 1) return { tools: [{ name: "plugin_install", params: { source: policy } }] }
-          if (n === 2) return { tools: [{ name: "plugin_install", params: { source: notEffect } }] }
-          if (n === 3) return { tools: [{ name: "plugin_install", params: { source: valid } }] }
-          if (n === 4) return { tools: [{ name: "word_count", params: { text: "uno dos tres" } }] }
-          return { text: "done" }
-        })
-      ],
-      true
-    ))
+  it.live("broken edits are refused with their errors (nothing applied); a valid one is applied and used in the same run", () => {
+    const home = testHome("selfmod")
+    const file = path.join(home, "plugins", "word-count", "index.ts")
+    const write = (content: string) => ({ name: "write", params: { path: file, content } })
+    const restart = { name: "restart", params: { reason: "word counter" } }
+    return Effect.gen(function*() {
+      const pie = yield* Pie.Pie
+      const session = yield* pie.create({ cwd: home, model: FAKE_MODEL })
+      yield* session.prompt("teach yourself to count words")
+      yield* session.awaitIdle
+      const results = data<{ name: string; isError: boolean; content: string }>(yield* session.events, "tool/finished")
+      expect(results.map((r) => [r.name, r.isError])).toEqual([
+        ["write", false],
+        ["restart", true],
+        ["write", false],
+        ["restart", true],
+        ["write", false],
+        ["restart", false],
+        ["word_count", false]
+      ])
+      expect(results[1]?.content).toContain("Nothing applied")
+      expect(results[3]?.content).toContain("setup must return an Effect")
+      expect(results[5]?.content).toContain("Changed: word-count")
+      expect(results[6]?.content).toBe("3")
+      // The SDK is read-only for the agent.
+      expect(fs.readFileSync(file, "utf8")).toBe(valid)
+    }).pipe(
+      Effect.provide(Pie.layer({
+        home,
+        seed: ["coding-tools", "self"],
+        plugins: [
+          fakeModelPlugin((messages) => {
+            const steps = [write("export default {{ broken"), restart, write(notEffect), restart, write(valid), restart]
+            const n = toolResults(messages).length
+            if (n < steps.length) return { tools: [steps[n]!] }
+            if (n === steps.length) return { tools: [{ name: "word_count", params: { text: "uno dos tres" } }] }
+            return { text: "done" }
+          })
+        ]
+      })),
+      Effect.scoped
+    )
+  })
+
+  it.live("writes inside the SDK are denied", () => {
+    const home = testHome("guard")
+    const target = path.join(import.meta.dirname, "..", "src", "index.ts")
+    return Effect.gen(function*() {
+      const pie = yield* Pie.Pie
+      const session = yield* pie.create({ cwd: home, model: FAKE_MODEL })
+      yield* session.prompt("edit the sdk")
+      yield* session.awaitIdle
+      const [result] = data<{ isError: boolean; content: string }>(yield* session.events, "tool/finished")
+      expect(result).toMatchObject({ isError: true })
+      expect(result?.content).toContain("read-only")
+    }).pipe(
+      Effect.provide(Pie.layer({
+        home,
+        seed: ["coding-tools", "self"],
+        plugins: [
+          fakeModelPlugin((messages) =>
+            toolResults(messages).length === 0
+              ? { tools: [{ name: "write", params: { path: target, content: "oops" } }] }
+              : { text: "ok" }
+          )
+        ]
+      })),
+      Effect.scoped
+    )
+  })
 })

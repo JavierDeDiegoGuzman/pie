@@ -3,8 +3,8 @@ import { Effect, Fiber } from "effect"
 import * as fs from "node:fs"
 import * as os from "node:os"
 import * as path from "node:path"
-import { tools } from "../src/plugins/coding-tools.ts"
-import { collect } from "../src/plugins/context-files.ts"
+import { tools } from "../plugins/coding-tools/index.ts"
+import { collect } from "../plugins/context-files/index.ts"
 
 const tool = (name: string) => tools.find((t) => t.name === name)!
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "pie-tools-"))

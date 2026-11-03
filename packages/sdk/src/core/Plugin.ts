@@ -70,6 +70,17 @@ export interface PieApi {
   readonly projection: (projectionId: string, sessionId: string) => Effect.Effect<unknown>
   readonly registries: Registries["Service"]
   readonly plugins: Plugins["Service"]
+  /** Where things are: the agent may read all of them; it edits only `plugins`. */
+  readonly paths: {
+    readonly home: string | undefined
+    /** The plugins folder (every plugin, editable; apply with the restart tool). */
+    readonly plugins: string | undefined
+    /** The SDK (read-only). */
+    readonly sdk: string
+    /** Templates new homes are seeded from (read-only; what safe mode loads). */
+    readonly templates: string
+    readonly docs: string
+  }
 }
 
 export interface Projection<S> {

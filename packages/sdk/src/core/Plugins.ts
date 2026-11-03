@@ -1,92 +1,86 @@
 /**
- * Keeps the loaded plugins equal to the configuration log folded over the
- * built-ins. Everything above the kernel is modifiable by the agent, built-ins
- * included; what makes that safe is that every change can be undone:
+ * Plugins come from two places:
  *
- *   install(source)  validate in a throwaway composition → plugin/installed → apply
- *   try(source)      load in this process only; keep(id) makes it permanent
- *   rollback(seq)    config/reset: the composition of an earlier point (undoable too)
- *   markGood()       config/good: target of the supervisor's automatic rollback
+ *   - the plugins folder, `<home>/plugins`: one subfolder per plugin, all of
+ *     them editable by the agent with ordinary tools. A new home is seeded
+ *     from the SDK's templates. This is where every built-in lives too.
+ *   - host plugins passed to Pie.layer in memory (tests, embedding apps, the
+ *     SDK guard): not editable from the folder.
  *
- * apply is hot (this process, visible from the next model call) or restart
- * (drain to a safe point, then signal the supervisor). Safe mode loads the
- * built-ins only. Required plugins must load or the boot fails, which the
- * supervisor turns into an automatic rollback.
+ * Changes to the folder are applied with `restart` (the agent's restart
+ * tool): the changed plugins are validated in a throwaway composition; if
+ * they load, a snapshot of the whole folder is recorded in the configuration
+ * log and the change is applied — in this process (reload "hot") or by
+ * draining to a safe point and letting the supervisor restart Pie (reload
+ * "restart"). `rollback` restores the files of an earlier snapshot. Safe mode
+ * loads the SDK templates instead of the folder.
  */
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { Context, Data, Deferred, Effect, FileSystem, Layer, Path } from "effect"
-import { type ConfigEvent, ConfigLog, type ConfigState, hashSource } from "./ConfigLog.ts"
+import { type ConfigEvent, ConfigLog, type ConfigState, type Files, hashFiles } from "./ConfigLog.ts"
 import * as Core from "./Core.ts"
 import type { Plugin } from "./Plugin.ts"
+import * as Folder from "./PluginFolder.ts"
 import { type PluginInfo, PluginHost } from "./PluginHost.ts"
 import { importPluginModule } from "./PluginLoader.ts"
 import { Runtime } from "./Runtime.ts"
 
 export class PluginRejected extends Data.TaggedError("PluginRejected")<{ readonly message: string }> {}
 
-export interface BuiltinEntry {
+export interface HostEntry {
   readonly plugin: Plugin
   readonly options?: Readonly<Record<string, unknown>> | undefined
 }
 
 export interface PluginsOptions {
-  readonly builtins: ReadonlyArray<BuiltinEntry>
-  /** Plugin ids the agent cannot change. Empty by default: rollback is the safety net. */
-  readonly protected: ReadonlySet<string>
-  /** Plugin ids that must load; otherwise the boot fails. */
-  readonly required: ReadonlySet<string>
-  readonly cacheDirectory: string
-  /** hot: apply in this process. restart: drain and request a restart. */
+  /** Pie's home; plugins live in `<home>/plugins`. Without it, only host plugins load. */
+  readonly home: string | undefined
+  /** Templates copied into a new home, in load order. */
+  readonly seed: ReadonlyArray<string>
+  readonly host: ReadonlyArray<HostEntry>
+  /** Options for folder plugins, by id (e.g. web: port, cwd). */
+  readonly pluginOptions: Readonly<Record<string, Readonly<Record<string, unknown>>>>
   readonly reload: "hot" | "restart"
-  /** Load the built-ins only, ignoring what the agent installed or disabled. */
+  /** Load the SDK templates (the `seed` list) instead of the plugins folder. */
   readonly safe: boolean
+  /** Plugin ids that must load, or the boot fails (the supervisor then rolls back). */
+  readonly required: ReadonlySet<string>
 }
 
 export interface Explanation {
   readonly safe: boolean
   readonly reload: "hot" | "restart"
-  readonly loaded: ReadonlyArray<PluginInfo>
-  readonly installed: ReadonlyArray<{ readonly id: string; readonly version: string; readonly seq: number }>
-  readonly disabled: ReadonlyArray<string>
-  /** In this process only (plugin try). */
-  readonly trial: ReadonlyArray<{ readonly id: string; readonly version: string }>
+  /** Where the plugins live; edit these files and call restart to apply. */
+  readonly folder: string | undefined
+  readonly plugins: ReadonlyArray<{ readonly id: string; readonly from: string; readonly path?: string; readonly files?: ReadonlyArray<string> }>
+  /** Plugins whose files changed since the last applied snapshot (pending restart). */
+  readonly pending: ReadonlyArray<string>
   readonly lastGood: number
   readonly head: number
-  readonly history: ReadonlyArray<{ readonly seq: number; readonly type: string; readonly id?: string; readonly version?: string; readonly at: string; readonly note?: string }>
+  readonly history: ReadonlyArray<{ readonly seq: number; readonly type: string; readonly at: string; readonly note: string }>
 }
 
-export const describe = (event: ConfigEvent) => {
-  const data = event.data as { id?: string; hash?: string; toSeq?: number; reason?: string; seq?: number }
-  return {
-    seq: event.seq,
-    type: event.type,
-    ...(data.id === undefined ? {} : { id: data.id }),
-    ...(data.hash === undefined ? {} : { version: data.hash }),
-    at: new Date(event.createdAt).toISOString(),
-    ...(event.type === "config/reset" ? { note: `back to #${data.toSeq}: ${data.reason}` } : {}),
-    ...(event.type === "config/good" ? { note: `good up to #${data.seq}` } : {})
-  }
-}
+export const describe = (event: ConfigEvent) => ({
+  seq: event.seq,
+  type: event.type,
+  at: new Date(event.createdAt).toISOString(),
+  note: event.type === "plugins/snapshot"
+    ? `${(event.data as { reason: string }).reason} (${Object.keys((event.data as { files: Files }).files).length} files)`
+    : `good up to #${(event.data as { seq: number }).seq}`
+})
 
 export class Plugins extends Context.Service<Plugins, {
-  /** Validates and installs (or updates) a plugin; a built-in's id replaces the built-in. */
-  readonly install: (source: string) => Effect.Effect<{ readonly id: string; readonly hash: string }, PluginRejected>
-  /** Validates and loads a plugin in this process only (hot reload only). */
-  readonly try: (source: string) => Effect.Effect<{ readonly id: string; readonly hash: string }, PluginRejected>
-  /** Makes a tried plugin permanent. */
-  readonly keep: (id: string) => Effect.Effect<void, PluginRejected>
-  readonly remove: (id: string) => Effect.Effect<void, PluginRejected>
-  readonly enable: (id: string) => Effect.Effect<void, PluginRejected>
-  /** Installs again the source of an earlier version. */
-  readonly restore: (id: string, hash: string) => Effect.Effect<void, PluginRejected>
-  /** Composition of right after config event `toSeq` (0: built-ins only). Recorded, so it can be undone. */
+  readonly folder: string | undefined
+  /** Validates what changed in the plugins folder, records a snapshot and applies it. */
+  readonly restart: (reason: string) => Effect.Effect<{ readonly changed: ReadonlyArray<string> }, PluginRejected>
+  /** Restores the plugins folder of snapshot `toSeq` and applies it (recorded, so it can be undone). */
   readonly rollback: (toSeq: number, reason: string) => Effect.Effect<void, PluginRejected>
-  /** Marks the current composition as good (target of automatic rollbacks). */
+  /** Disables a folder plugin in plugins.json and applies it. */
+  readonly disable: (id: string, reason: string) => Effect.Effect<void, PluginRejected>
+  /** Marks the current snapshot as good (target of automatic rollbacks). */
   readonly markGood: Effect.Effect<void>
   readonly explain: Effect.Effect<Explanation>
-  /** Source files of a plugin (installed, trial or built-in): name → content. */
-  readonly source: (id: string) => Effect.Effect<Readonly<Record<string, string>>, PluginRejected>
   readonly config: Effect.Effect<ConfigState>
   readonly reload: "hot" | "restart"
   /** Completes when a restart was requested and work in flight has drained. */
@@ -97,24 +91,23 @@ export class Plugins extends Context.Service<Plugins, {
       const host = yield* PluginHost
       const config = yield* ConfigLog
       const runtime = yield* Effect.serviceOption(Runtime)
-      const restart = yield* Deferred.make<void>()
+      const restartSignal = yield* Deferred.make<void>()
       const services = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
-      const loadedVersions = new Map<string, string>()
-      const trial = new Map<string, { readonly hash: string; readonly source: string }>()
+      const folder = options.home === undefined ? undefined : path.join(options.home, "plugins")
+      const loaded = new Map<string, string>() // folder plugin id -> hash of its files
 
-      const fileOf = (hash: string) => path.join(options.cacheDirectory, `${hash}.ts`)
-      const importSource = (source: string) =>
-        Effect.gen(function*() {
-          const hash = hashSource(source)
-          yield* Effect.promise(async () => {
-            await fs.mkdir(options.cacheDirectory, { recursive: true })
-            await fs.writeFile(fileOf(hash), source)
-          })
-          const plugin = yield* importPluginModule(fileOf(hash), hash).pipe(
-            Effect.mapError((message) => new PluginRejected({ message }))
+      const read = folder === undefined ? Effect.succeed({} as Files) : Effect.promise(() => Folder.readFiles(folder))
+
+      const importFolderPlugin = (base: string, id: string, files: Files) => {
+        const hash = hashFiles(Folder.pluginFiles(files, id))
+        return importPluginModule(path.join(base, id, "index.ts"), hash).pipe(
+          Effect.flatMap((plugin) =>
+            plugin.id === id
+              ? Effect.succeed({ plugin, hash })
+              : Effect.fail(`the plugin in folder "${id}" declares id "${plugin.id}"; they must match`)
           )
-          return { plugin, hash }
-        })
+        )
+      }
 
       /** Runs setup in a fresh, throwaway composition: catches errors without touching the live one. */
       const validate = (plugin: Plugin) =>
@@ -122,157 +115,140 @@ export class Plugins extends Context.Service<Plugins, {
           Effect.gen(function*() {
             const api = yield* host.getApi
             if (api) yield* scratch.setApi(api)
-            yield* scratch.load(plugin, { trusted: false, options: builtinOptions(plugin.id) })
+            yield* scratch.load(plugin, { options: options.pluginOptions[plugin.id] })
           })
         ).pipe(
           Effect.provide(Layer.fresh(Core.layer)),
           Effect.scoped,
           Effect.provideContext(services),
-          Effect.mapError((e) => new PluginRejected({ message: e.message }))
+          Effect.mapError((e) => e.message)
         )
 
-      const builtinOptions = (id: string) => options.builtins.find((b) => b.plugin.id === id)?.options
-      const builtinOrder = new Map(options.builtins.map((b, i) => [b.plugin.id, (i + 1) * 1000]))
-      const isLoaded = (id: string) => Effect.map(host.list, (list) => list.some((p) => p.id === id))
-
-      const loadBuiltin = (entry: BuiltinEntry) =>
-        host.replace(entry.plugin, { options: entry.options, order: builtinOrder.get(entry.plugin.id), source: `builtin:${entry.plugin.id}` }).pipe(
+      for (const [i, entry] of options.host.entries()) {
+        yield* host.load(entry.plugin, { options: entry.options, order: 100 + i, source: "host" }).pipe(
           Effect.catchTag("PluginLoadError", (e) => Effect.logWarning(`plugin ${e.id} failed: ${e.message}`))
         )
-
-      const apply = Effect.gen(function*() {
-        const state = options.safe ? { installed: new Map(), disabled: new Set<string>() } as const : yield* config.state
-        // Agent-installed versions (a built-in's id replaces the built-in).
-        for (const [id, entry] of state.installed) {
-          if (trial.has(id)) continue
-          if (loadedVersions.get(id) === entry.hash) continue
-          const result = yield* importSource(entry.source).pipe(
-            Effect.flatMap(({ plugin }) =>
-              host.replace(plugin, {
-                // A replacement of a built-in keeps the built-in's options (port, token, ...).
-                options: builtinOptions(id),
-                order: builtinOrder.get(id) ?? 1_000_000 + entry.seq,
-                source: `config:${entry.hash}`,
-                trusted: false
-              })
-            ),
-            Effect.result
-          )
-          if (result._tag === "Success") loadedVersions.set(id, entry.hash)
-          else yield* Effect.logWarning(`plugin ${id} failed to load: ${String(result.failure)}`)
-        }
-        // Built-ins: loaded unless disabled or replaced.
-        for (const entry of options.builtins) {
-          const id = entry.plugin.id
-          if (state.installed.has(id) || trial.has(id)) continue
-          const loaded = yield* isLoaded(id)
-          if (state.disabled.has(id)) {
-            if (loaded) yield* Effect.ignore(host.unload(id))
-            loadedVersions.delete(id)
-          } else if (!loaded || loadedVersions.has(id)) {
-            loadedVersions.delete(id)
-            yield* loadBuiltin(entry)
-          }
-        }
-        // Installed versions that are no longer in the composition.
-        for (const id of [...loadedVersions.keys()]) {
-          if (state.installed.has(id) || builtinOrder.has(id)) continue
-          loadedVersions.delete(id)
-          yield* Effect.ignore(host.unload(id))
-        }
-      })
-
-      const requestChange = Effect.gen(function*() {
-        if (options.reload === "hot") return yield* apply
-        yield* Effect.forkDetach(Effect.gen(function*() {
-          if (runtime._tag === "Some") yield* runtime.value.drain()
-          yield* Deferred.succeed(restart, undefined)
-        }))
-      })
-
-      const guard = (id: string) =>
-        options.protected.has(id) ? Effect.fail(new PluginRejected({ message: `"${id}" is protected` })) : Effect.void
-
-      yield* apply
-      for (const id of options.required) {
-        if (!(yield* isLoaded(id))) return yield* Effect.die(new Error(`required plugin "${id}" did not load`))
       }
 
+      /** Makes the loaded folder plugins match `files` (or the templates in safe mode). */
+      const apply = (files: Files) =>
+        Effect.gen(function*() {
+          const base = options.safe ? Folder.TEMPLATES : folder
+          if (base === undefined) return
+          const source = options.safe ? yield* Effect.promise(() => Folder.templateFiles(options.seed)) : files
+          const ids = Folder.enabledPlugins(source)
+          for (const [i, id] of ids.entries()) {
+            const hash = hashFiles(Folder.pluginFiles(source, id))
+            if (loaded.get(id) === hash) continue
+            const result = yield* importFolderPlugin(base, id, source).pipe(
+              Effect.flatMap(({ plugin }) =>
+                host.replace(plugin, { options: options.pluginOptions[id], order: 1000 * (i + 1), source: `folder:${id}` }).pipe(
+                  Effect.mapError((e) => e.message)
+                )
+              ),
+              Effect.result
+            )
+            if (result._tag === "Success") loaded.set(id, hash)
+            else yield* Effect.logWarning(`plugin ${id} failed to load: ${result.failure}`)
+          }
+          for (const id of [...loaded.keys()]) {
+            if (ids.includes(id)) continue
+            loaded.delete(id)
+            yield* Effect.ignore(host.unload(id))
+          }
+        })
+
+      const requestChange = (files: Files) =>
+        Effect.gen(function*() {
+          if (options.reload === "hot") return yield* apply(files)
+          yield* Effect.forkDetach(Effect.gen(function*() {
+            if (runtime._tag === "Some") yield* runtime.value.drain()
+            yield* Deferred.succeed(restartSignal, undefined)
+          }))
+        })
+
+      // -- boot: seed a new home, record changes made while Pie was down, load ----------
+      if (folder !== undefined && !options.safe) {
+        let files = yield* read
+        if (Object.keys(files).length === 0) {
+          files = yield* Effect.promise(() => Folder.templateFiles(options.seed))
+          yield* Effect.promise(() => Folder.writeFiles(folder, files))
+          yield* config.append("plugins/snapshot", { files, hash: hashFiles(files), reason: "seeded from the SDK templates" })
+        } else if ((yield* config.state).current?.hash !== hashFiles(files)) {
+          yield* config.append("plugins/snapshot", { files, hash: hashFiles(files), reason: "changes found at startup" })
+        }
+        yield* apply(files)
+      } else if (options.safe) {
+        yield* apply({})
+      }
+      const loadedIds = (yield* host.list).map((p) => p.id)
+      for (const id of options.required) {
+        if (!loadedIds.includes(id)) return yield* Effect.die(new Error(`required plugin "${id}" did not load`))
+      }
+
+      const changedPlugins = (files: Files) =>
+        Folder.enabledPlugins(files).filter((id) => loaded.get(id) !== hashFiles(Folder.pluginFiles(files, id)))
+
+      const restart = (reason: string) =>
+        Effect.gen(function*() {
+          if (folder === undefined) return yield* new PluginRejected({ message: "this Pie has no plugins folder" })
+          if (options.safe) return yield* new PluginRejected({ message: "safe mode: the plugins folder is not loaded" })
+          const files = yield* read
+          const changed = changedPlugins(files)
+          const errors: Array<string> = []
+          if (files[Folder.MANIFEST] !== undefined) {
+            try {
+              JSON.parse(files[Folder.MANIFEST]!)
+            } catch (error) {
+              errors.push(`${Folder.MANIFEST}: ${error instanceof Error ? error.message : String(error)}`)
+            }
+          }
+          for (const id of changed) {
+            const result = yield* importFolderPlugin(folder, id, files).pipe(
+              Effect.flatMap(({ plugin }) => validate(plugin)),
+              Effect.result
+            )
+            if (result._tag === "Failure") errors.push(`${id}: ${result.failure}`)
+          }
+          if (errors.length > 0) {
+            return yield* new PluginRejected({ message: `Nothing applied; fix these and call restart again:\n${errors.join("\n")}` })
+          }
+          const hash = hashFiles(files)
+          if ((yield* config.state).current?.hash !== hash) yield* config.append("plugins/snapshot", { files, hash, reason })
+          yield* requestChange(files)
+          return { changed }
+        })
+
+      const rollback = (toSeq: number, reason: string) =>
+        Effect.gen(function*() {
+          if (folder === undefined) return yield* new PluginRejected({ message: "this Pie has no plugins folder" })
+          const event = yield* config.get(toSeq)
+          if (!event || event.type !== "plugins/snapshot") {
+            return yield* new PluginRejected({ message: `#${toSeq} is not a snapshot of the plugins folder` })
+          }
+          const { files, hash } = event.data as { files: Files; hash: string }
+          yield* Effect.promise(() => Folder.writeFiles(folder, files))
+          yield* config.append("plugins/snapshot", { files, hash, reason: `rollback to #${toSeq}: ${reason}` })
+          yield* requestChange(files)
+        })
+
       return Plugins.of({
-        install: (source) =>
+        folder,
+        restart,
+        rollback,
+        disable: (id, reason) =>
           Effect.gen(function*() {
-            const { hash, plugin } = yield* importSource(source)
-            yield* guard(plugin.id)
-            yield* validate(plugin)
-            trial.delete(plugin.id)
-            yield* config.append("plugin/installed", { id: plugin.id, source, hash })
-            yield* requestChange
-            return { id: plugin.id, hash }
-          }),
-        try: (source) =>
-          Effect.gen(function*() {
-            if (options.reload !== "hot") {
-              return yield* new PluginRejected({ message: "trying a plugin needs hot reload; install it instead" })
+            if (folder === undefined) return yield* new PluginRejected({ message: "this Pie has no plugins folder" })
+            const files = yield* read
+            let manifest: Folder.Manifest = { order: Folder.enabledPlugins(files), disabled: [] }
+            try {
+              if (files[Folder.MANIFEST]) manifest = { ...manifest, ...JSON.parse(files[Folder.MANIFEST]!) }
+            } catch {
+              // rewritten below
             }
-            const { hash, plugin } = yield* importSource(source)
-            yield* guard(plugin.id)
-            yield* validate(plugin)
-            yield* host.replace(plugin, {
-              options: builtinOptions(plugin.id),
-              order: builtinOrder.get(plugin.id) ?? 2_000_000,
-              source: `trial:${hash}`,
-              trusted: false
-            }).pipe(
-              Effect.mapError((e) => new PluginRejected({ message: e.message }))
-            )
-            trial.set(plugin.id, { hash, source })
-            // Marks the slot as taken, so dropping the trial reloads a replaced built-in.
-            loadedVersions.set(plugin.id, `trial:${hash}`)
-            return { id: plugin.id, hash }
-          }),
-        keep: (id) =>
-          Effect.gen(function*() {
-            const tried = trial.get(id)
-            if (!tried) return yield* new PluginRejected({ message: `"${id}" is not being tried` })
-            trial.delete(id)
-            yield* config.append("plugin/installed", { id, source: tried.source, hash: tried.hash })
-            loadedVersions.set(id, tried.hash)
-          }),
-        remove: (id) =>
-          Effect.gen(function*() {
-            yield* guard(id)
-            if (trial.delete(id)) {
-              yield* Effect.ignore(host.unload(id))
-              return yield* apply
-            }
-            const state = yield* config.state
-            if (state.installed.has(id)) yield* config.append("plugin/removed", { id })
-            if (builtinOrder.has(id) || !state.installed.has(id)) yield* config.append("plugin/disabled", { id })
-            yield* requestChange
-          }),
-        enable: (id) => Effect.andThen(config.append("plugin/enabled", { id }), requestChange),
-        restore: (id, hash) =>
-          Effect.gen(function*() {
-            yield* guard(id)
-            const version = (yield* config.history).find((e) =>
-              e.type === "plugin/installed" && (e.data as { id: string }).id === id && (e.data as { hash: string }).hash === hash
-            )
-            if (!version) return yield* new PluginRejected({ message: `no version ${hash} of "${id}" in the history` })
-            yield* config.append("plugin/installed", version.data as { id: string; source: string; hash: string })
-            yield* requestChange
-          }),
-        rollback: (toSeq, reason) =>
-          Effect.gen(function*() {
-            const history = yield* config.history
-            if (toSeq !== 0 && !history.some((e) => e.seq === toSeq)) {
-              return yield* new PluginRejected({ message: `no configuration event #${toSeq}` })
-            }
-            for (const id of [...trial.keys()]) {
-              trial.delete(id)
-              yield* Effect.ignore(host.unload(id))
-            }
-            yield* config.append("config/reset", { toSeq, reason })
-            yield* requestChange
+            const next = { ...manifest, disabled: [...new Set([...manifest.disabled, id])] }
+            yield* Effect.promise(() => fs.writeFile(path.join(folder, Folder.MANIFEST), JSON.stringify(next, null, 2) + "\n"))
+            yield* restart(reason)
           }),
         markGood: Effect.gen(function*() {
           if (options.safe) return
@@ -282,34 +258,31 @@ export class Plugins extends Context.Service<Plugins, {
         explain: Effect.gen(function*() {
           const history = yield* config.history
           const state = yield* config.state
+          const files = yield* read
+          const list = yield* host.list
           return {
             safe: options.safe,
             reload: options.reload,
-            loaded: yield* host.list,
-            installed: [...state.installed.values()].map(({ hash, id, seq }) => ({ id, version: hash, seq })),
-            disabled: [...state.disabled],
-            trial: [...trial].map(([id, { hash }]) => ({ id, version: hash })),
+            folder,
+            plugins: list.map((p: PluginInfo) =>
+              p.source.startsWith("folder:") && folder
+                ? {
+                  id: p.id,
+                  from: options.safe ? "SDK template (safe mode)" : "plugins folder",
+                  path: path.join(options.safe ? Folder.TEMPLATES : folder, p.id),
+                  files: Object.keys(Folder.pluginFiles(files, p.id))
+                }
+                : { id: p.id, from: p.source === "host" ? "host (not editable)" : p.source }
+            ),
+            pending: options.safe ? [] : changedPlugins(files),
             lastGood: state.lastGood,
             head: state.head,
             history: history.map(describe)
           }
         }),
-        source: (id) =>
-          Effect.gen(function*() {
-            const tried = trial.get(id)
-            if (tried) return { "index.ts": tried.source }
-            const installed = (yield* config.state).installed.get(id)
-            if (installed && !options.safe) return { "index.ts": installed.source }
-            const builtin = options.builtins.find((b) => b.plugin.id === id)
-            const files = builtin?.plugin.sourceFiles
-            if (!files || files.length === 0) return yield* new PluginRejected({ message: `no source available for "${id}"` })
-            return yield* Effect.promise(async () =>
-              Object.fromEntries(await Promise.all(files.map(async (file) => [path.basename(file), await fs.readFile(file, "utf8")] as const)))
-            )
-          }),
         config: config.state,
         reload: options.reload,
-        restartRequested: Deferred.await(restart)
+        restartRequested: Deferred.await(restartSignal)
       })
     })
 

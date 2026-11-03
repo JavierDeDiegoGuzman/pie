@@ -8,8 +8,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
-import { fileURLToPath } from "node:url"
-import * as Plugin from "../core/Plugin.ts"
+import { Plugin } from "@pie/sdk"
 
 const NAMES = ["AGENTS.md", "CLAUDE.md"]
 
@@ -45,7 +44,6 @@ export const collect = (cwd: string, home = os.homedir()) =>
 
 export default Plugin.define({
   id: "context-files",
-  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     ctx.hook("context", (event) =>
       Effect.gen(function*() {

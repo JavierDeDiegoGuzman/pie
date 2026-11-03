@@ -3,15 +3,12 @@
  * Options: { models?: string[] } to override the default model list.
  */
 import { Effect, FileSystem, Layer, Path } from "effect"
-import { fileURLToPath } from "node:url"
-import * as Plugin from "../core/Plugin.ts"
-import * as OpenCodeGo from "../providers/OpenCodeGo.ts"
+import { OpenCodeGo, Plugin } from "@pie/sdk"
 
 export const DEFAULT_MODELS = ["deepseek-v4.1-flash", "deepseek-v4-pro", "kimi-k3", "glm-5.3", "qwen3.8-max"]
 
 export default Plugin.define({
   id: "opencode-go",
-  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     Effect.gen(function*() {
       const platform = Layer.mergeAll(

@@ -8,7 +8,8 @@
  *   const outcome = yield* session.awaitIdle
  */
 import { randomUUID } from "node:crypto"
-import * as os from "node:os"
+import * as fs from "node:fs"
+import { fileURLToPath } from "node:url"
 import * as path from "node:path"
 import { NodeServices } from "@effect/platform-node"
 import { Context, Effect, Layer, type Scope, Stream } from "effect"
@@ -20,18 +21,13 @@ import { Events, type PieEvent } from "./core/Events.ts"
 import { EventLog, type LogEvent, type SessionInfo, type SessionNotFound } from "./core/Log.ts"
 import * as LogWorkflowEngine from "./core/LogWorkflowEngine.ts"
 import * as ModuleResolution from "./core/ModuleResolution.ts"
-import type { Plugin } from "./core/Plugin.ts"
+import * as Plugin from "./core/Plugin.ts"
+type Plugin = Plugin.Plugin
 import { foldProjection, PluginHost } from "./core/PluginHost.ts"
 import { Registries } from "./core/Registry.ts"
-import { PluginLoader } from "./core/PluginLoader.ts"
-import { type BuiltinEntry, Plugins } from "./core/Plugins.ts"
+import { type HostEntry, Plugins } from "./core/Plugins.ts"
 import { Runtime, type SessionBusy } from "./core/Runtime.ts"
-import type { Storage } from "./core/Storage.ts"
-import CodingToolsPlugin from "./plugins/coding-tools.ts"
-import ContextFilesPlugin from "./plugins/context-files.ts"
-import OpenCodeGoPlugin from "./plugins/opencode-go.ts"
-import * as SelfPlugin from "./plugins/self.ts"
-import SystemPromptPlugin from "./plugins/system-prompt.ts"
+import * as Storage from "./core/Storage.ts"
 import { RESTART_EXIT_CODE } from "./Supervisor.ts"
 
 export interface PromptOptions {
@@ -99,60 +95,95 @@ const make = Effect.gen(function*() {
 })
 
 export interface LayerOptions {
-  /** Storage.sqlite(file) or Storage.memory. */
-  readonly storage: Storage
-  /** Built-in plugins in order. Default: `builtins`. The agent can disable them unless protected. */
-  readonly plugins?: ReadonlyArray<Plugin | BuiltinEntry>
-  /** Directories of human-managed plugin files, synced and watched. */
-  readonly pluginDirectories?: ReadonlyArray<string>
-  /** Give the agent the plugin_* tools (self-modification). Default: true. */
-  readonly selfModify?: boolean
-  /** Plugin ids the agent cannot change. Default: none (rollback is the safety net). */
-  readonly protected?: ReadonlyArray<string>
+  /**
+   * Pie's home (e.g. ".pie"): `pie.db` (sessions, configuration log) and
+   * `plugins/` (every plugin, editable by the agent, seeded from the SDK
+   * templates on first run). Without a home only host plugins load.
+   */
+  readonly home?: string
+  /** Default: Storage.sqlite(<home>/pie.db), or Storage.memory without a home. */
+  readonly storage?: Storage.Storage
+  /** Templates copied into a new home, in load order. Default: DEFAULT_SEED. */
+  readonly seed?: ReadonlyArray<string>
+  /** Options for folder plugins, by id (e.g. { web: { port: 4100, cwd } }). */
+  readonly pluginOptions?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
+  /** Host plugins: loaded from memory before the folder, not editable by the agent (tests, embedding apps). */
+  readonly plugins?: ReadonlyArray<Plugin | HostEntry>
   /** Plugin ids that must load, or the boot fails (the supervisor then rolls back). */
   readonly required?: ReadonlyArray<string>
-  /** Built-ins only, ignoring agent changes. Default: PIE_SAFE=1. */
+  /** Load the SDK templates instead of the plugins folder. Default: PIE_SAFE=1. */
   readonly safe?: boolean
-  /** Mark the composition good after this long running (ms), and after each completed run. Default 3000. */
+  /** Mark the plugins snapshot good after this long running (ms), and after each completed run. Default 3000. */
   readonly goodAfter?: number
   /**
-   * How plugin changes apply. "hot": in this process, from the next model call.
-   * "restart": drain to a safe point and exit with RESTART_EXIT_CODE (use with
-   * Supervisor.run and Pie.exitOnRestart).
+   * How the restart tool applies changes. "hot": in this process. "restart":
+   * drain to a safe point and exit with RESTART_EXIT_CODE (use with
+   * Supervisor.run / `pie serve` and Pie.exitOnRestart).
    */
   readonly reload?: "hot" | "restart"
-  /** Where agent-installed plugin sources are materialized to be imported. */
-  readonly pluginCacheDirectory?: string
 }
 
-/** The plugins Pie ships with, in their default order. */
-export const builtins: ReadonlyArray<Plugin> = [OpenCodeGoPlugin, SystemPromptPlugin, ContextFilesPlugin, CodingToolsPlugin]
+/** Templates seeded into a new home by default, in load order. */
+export const DEFAULT_SEED: ReadonlyArray<string> = ["opencode-go", "system-prompt", "context-files", "coding-tools", "self"]
+
+/** Root of the SDK package. */
+export const SDK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+
+/** What the agent may read but not write: the SDK's code, its plugin templates and its manifest. */
+export const SDK_PROTECTED = ["src", "plugins", "package.json"].map((p) => path.join(SDK_ROOT, p))
+
+/**
+ * Host plugin that keeps the SDK read-only: write and edit inside it are
+ * denied. It is not in the plugins folder, so the agent cannot edit it. (A
+ * shell command can still write anywhere the user can; this stops the normal
+ * path, not a determined one.)
+ */
+const sdkGuard = Plugin.define({
+  id: "sdk-guard",
+  setup: (ctx) =>
+    ctx.hook("tool.before", (event) =>
+      Effect.sync(() => {
+        if (event.tool !== "write" && event.tool !== "edit") return
+        const target = (event.params as { path?: unknown }).path
+        if (typeof target !== "string") return
+        const resolved = path.resolve(event.cwd, target)
+        if (SDK_PROTECTED.some((p) => resolved === p || resolved.startsWith(p + path.sep))) {
+          event.decision = {
+            _tag: "Deny",
+            reason: `Pie's SDK (${SDK_ROOT}) is read-only. Plugins live in your plugins folder; edit them there and call restart.`
+          }
+        }
+      }))
+})
 
 export const layer = (options: LayerOptions) => {
   ModuleResolution.register()
-  const entries: ReadonlyArray<BuiltinEntry> = (options.plugins ?? builtins).map((p) => ("plugin" in p ? p : { plugin: p }))
-  // self is a regular built-in (replaceable, removable); it reaches the manager lazily.
+  const home = options.home === undefined ? undefined : path.resolve(options.home)
+  if (home) fs.mkdirSync(home, { recursive: true })
+  const storage = options.storage ?? (home ? Storage.sqlite(path.join(home, "pie.db")) : Storage.memory)
+  const hostEntries: ReadonlyArray<HostEntry> = [
+    { plugin: sdkGuard },
+    ...(options.plugins ?? []).map((p) => ("plugin" in p ? p : { plugin: p }))
+  ]
   let manager: Plugins["Service"] | undefined
-  const selfPlugin = SelfPlugin.make({
-    plugins: new Proxy({} as Plugins["Service"], { get: (_, key) => (manager as any)[key] })
-  })
 
-  const plugins = Layer.effect(Plugins, Effect.suspend(() => Plugins.make({
-    builtins: (options.selfModify ?? true) ? [...entries, { plugin: selfPlugin }] : entries,
-    protected: new Set(options.protected ?? []),
-    required: new Set(options.required ?? []),
-    safe: options.safe ?? process.env.PIE_SAFE === "1",
-    cacheDirectory: options.pluginCacheDirectory ?? path.join(os.tmpdir(), "pie-plugin-cache"),
-    reload: options.reload ?? "hot"
-  })))
+  const plugins = Layer.effect(Plugins, Effect.suspend(() => {
+    return Plugins.make({
+      home,
+      seed: options.seed ?? DEFAULT_SEED,
+      host: hostEntries,
+      pluginOptions: options.pluginOptions ?? {},
+      reload: options.reload ?? "hot",
+      safe: options.safe ?? process.env.PIE_SAFE === "1",
+      required: new Set(options.required ?? [])
+    })
+  }))
 
   const startup = Layer.effectDiscard(Effect.gen(function*() {
     manager = yield* Plugins
-    const loader = yield* PluginLoader
     const events = yield* Events
-    for (const directory of options.pluginDirectories ?? []) yield* loader.watch(directory)
     yield* (yield* Runtime).start
-    // The composition is "good" once it has been up for a while, and after each completed run.
+    // The snapshot is "good" once Pie has been up for a while, and after each completed run.
     const plugins = manager
     yield* plugins.markGood.pipe(Effect.delay(options.goodAfter ?? 3000), Effect.forkScoped)
     yield* events.stream().pipe(
@@ -189,7 +220,14 @@ export const layer = (options: LayerOptions) => {
           return foldProjection(definition, yield* log.branch(sessionId))
         }),
       registries,
-      plugins: new Proxy({} as Plugins["Service"], { get: (_, key) => (manager as any)[key] })
+      plugins: new Proxy({} as Plugins["Service"], { get: (_, key) => (manager as any)[key] }),
+      paths: {
+        home,
+        plugins: home ? path.join(home, "plugins") : undefined,
+        sdk: SDK_ROOT,
+        templates: path.join(SDK_ROOT, "plugins"),
+        docs: path.join(SDK_ROOT, "..", "..", "docs")
+      }
     })
   }))
 
@@ -208,7 +246,7 @@ export const layer = (options: LayerOptions) => {
     Layer.provideMerge(Layer.effect(Runtime, Runtime.make)),
     Layer.provideMerge(Core.layer),
     Layer.provideMerge(base),
-    Layer.provideMerge(options.storage),
+    Layer.provideMerge(storage),
     Layer.provideMerge(NodeServices.layer)
   )
 }

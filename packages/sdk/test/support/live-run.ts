@@ -1,11 +1,11 @@
 /**
  * Manual live run against OpenCode Go with all built-in plugins.
  *   node --no-warnings packages/sdk/test/support/live-run.ts <cwd> "<prompt>"
- * Prints the transcript. Sessions and the configuration log go to <cwd>/pie.db.
+ * Prints the transcript. Pie's home (sessions, editable plugins) is <cwd>/.pie.
  */
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
-import { Pie, Storage, TodoPlugin } from "../../src/index.ts"
+import { Pie } from "../../src/index.ts"
 
 const [dir] = process.argv.slice(2) as [string]
 
@@ -28,7 +28,7 @@ const program = Effect.gen(function*() {
 
 NodeRuntime.runMain(
   program.pipe(
-    Effect.provide(Pie.layer({ storage: Storage.sqlite(`${dir}/pie.db`), plugins: [...Pie.builtins, TodoPlugin] })),
+    Effect.provide(Pie.layer({ home: `${dir}/.pie`, seed: [...Pie.DEFAULT_SEED, "todo"] })),
     Effect.scoped,
     Effect.timeout("150 seconds"),
     Effect.andThen(Effect.sync(() => process.exit(0)))

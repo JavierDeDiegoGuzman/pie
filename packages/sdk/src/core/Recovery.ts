@@ -1,37 +1,47 @@
 /**
- * Recovery without plugins: reads and writes the configuration log straight
- * from the database, so it works however broken the agent left the plugins.
- * Used by the `pie` CLI and by the supervisor's automatic rollback.
+ * Recovery without plugins: reads and writes the configuration log and the
+ * plugins folder of a Pie home directly, so it works however broken the agent
+ * left its plugins. Used by the `pie` CLI and the supervisor's automatic
+ * rollback.
  */
+import * as path from "node:path"
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Effect, Layer } from "effect"
-import { ConfigLog } from "./ConfigLog.ts"
+import { ConfigLog, type Files } from "./ConfigLog.ts"
+import * as Folder from "./PluginFolder.ts"
 import { describe } from "./Plugins.ts"
 
-const withConfig = (database: string) => Layer.effect(ConfigLog, ConfigLog.make).pipe(Layer.provide(SqliteClient.layer({ filename: database })), Layer.orDie)
+export const database = (home: string) => path.join(home, "pie.db")
 
-export const explain = (database: string) =>
+const withConfig = (home: string) =>
+  Layer.effect(ConfigLog, ConfigLog.make).pipe(Layer.provide(SqliteClient.layer({ filename: database(home) })), Layer.orDie)
+
+export const explain = (home: string) =>
   Effect.gen(function*() {
     const config = yield* ConfigLog
     const state = yield* config.state
+    const files = yield* Effect.promise(() => Folder.readFiles(path.join(home, "plugins")))
     return {
-      installed: [...state.installed.values()].map(({ hash, id, seq }) => ({ id, version: hash, seq })),
-      disabled: [...state.disabled],
+      folder: path.join(home, "plugins"),
+      plugins: Folder.enabledPlugins(files),
       lastGood: state.lastGood,
       head: state.head,
       history: (yield* config.history).map(describe)
     }
-  }).pipe(Effect.provide(withConfig(database)))
+  }).pipe(Effect.provide(withConfig(home)))
 
-/** Appends a config/reset. `target`: a config seq, or "last-good" (0 when nothing was ever marked good). */
-export const rollback = (database: string, target: number | "last-good", reason: string) =>
+/** Restores the plugins folder of a snapshot (`last-good`: the last one marked good) and records it. */
+export const rollback = (home: string, target: number | "last-good", reason: string) =>
   Effect.gen(function*() {
     const config = yield* ConfigLog
     const state = yield* config.state
     const toSeq = target === "last-good" ? state.lastGood : target
-    if (toSeq === state.head) return { toSeq, changed: false }
-    yield* config.append("config/reset", { toSeq, reason })
+    const event = toSeq === 0 ? undefined : yield* config.get(toSeq)
+    if (!event || event.type !== "plugins/snapshot") return { toSeq, changed: false }
+    const { files, hash } = event.data as { files: Files; hash: string }
+    yield* Effect.promise(() => Folder.writeFiles(path.join(home, "plugins"), files))
+    yield* config.append("plugins/snapshot", { files, hash, reason: `rollback to #${toSeq}: ${reason}` })
     return { toSeq, changed: true }
-  }).pipe(Effect.provide(withConfig(database)))
+  }).pipe(Effect.provide(withConfig(home)))
 
 export const run = <A>(effect: Effect.Effect<A>) => Effect.runPromise(effect)

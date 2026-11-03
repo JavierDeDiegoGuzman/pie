@@ -1,13 +1,11 @@
 /**
- * Files the web plugin serves. Exported from @pie/sdk so a replacement web
- * plugin written by the agent can reuse (or ignore) them.
+ * Browser libraries the web plugin serves (Preact + htm), resolved from the
+ * SDK's dependencies so plugins anywhere can serve them without installing.
  */
 import * as fs from "node:fs"
 import { createRequire } from "node:module"
 import * as path from "node:path"
-import { fileURLToPath } from "node:url"
 
-const here = path.dirname(fileURLToPath(import.meta.url))
 const require = createRequire(import.meta.url)
 /** Package root: walk up from its entry point (not every package exports package.json). */
 const pkg = (name: string) => {
@@ -19,9 +17,6 @@ const pkg = (name: string) => {
   }
   return dir
 }
-
-export const shell = path.join(here, "shell.html")
-export const uiSdk = path.join(here, "ui-sdk.js")
 
 /** URL path under /vendor/ → file. Matches the import map in shell.html. */
 export const vendor: Readonly<Record<string, string>> = {

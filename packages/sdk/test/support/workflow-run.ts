@@ -50,7 +50,7 @@ const program = Effect.gen(function*() {
 
 NodeRuntime.runMain(
   program.pipe(
-    Effect.provide(FlowLive.pipe(Layer.provideMerge(Pie.layer({ storage: Storage.sqlite(db), plugins: [], selfModify: false })))),
+    Effect.provide(FlowLive.pipe(Layer.provideMerge(Pie.layer({ storage: Storage.sqlite(db), plugins: [] })))),
     Effect.scoped,
     Effect.timeout("20 seconds"),
     Effect.andThen(Effect.sync(() => process.exit(0)))

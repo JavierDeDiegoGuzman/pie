@@ -1,7 +1,8 @@
 /**
- * Built-in plugin: the web interface. Like everything else, the agent can
- * replace or remove it; the safety nets are rollback (also from the page's
- * "Plugins y deshacer" menu), `pie rollback` from the terminal and PIE_SAFE=1.
+ * Plugin: the web interface. Like every plugin it is a folder the agent can
+ * edit (this file, shell.html, ui-sdk.js) and apply with the restart tool; the
+ * safety nets are rollback (also from the page's "Plugins y deshacer" menu),
+ * `pie rollback` from the terminal and PIE_SAFE=1.
  *
  * Serves, on 127.0.0.1 only and behind a token:
  *   /            the shell: header, slots (sidebar, main, panel, header) and the recovery menu
@@ -10,22 +11,20 @@
  *   /api/*       sessions, events, prompts, projections, plugins; /api/live is SSE
  *
  * The chat itself is a UI module of another plugin (web-chat), so it can be
- * replaced too. Options: port, host, token, cwd, model, and `shell` (the HTML of
- * the page, to change the layout without rewriting the server): a plugin with
- * id "web" can reuse this one with its own shell,
- *
- *   import { Plugin, WebPlugin } from "@pie/sdk"
- *   export default Plugin.define({ id: "web",
- *     setup: (ctx) => WebPlugin.setup({ ...ctx, options: { ...ctx.options, shell: MY_SHELL_HTML } }) })
+ * replaced too. Options: port, host, token, cwd, model.
  */
 import { randomUUID } from "node:crypto"
-import { fileURLToPath } from "node:url"
 import * as fs from "node:fs"
 import * as http from "node:http"
+import * as path from "node:path"
+import { fileURLToPath } from "node:url"
 import { Effect, Schema, Stream } from "effect"
-import * as Plugin from "../core/Plugin.ts"
-import { defineTool } from "../core/Registry.ts"
-import * as Assets from "../web/assets.ts"
+import { Plugin, WebAssets, defineTool } from "@pie/sdk"
+
+// The page and the browser SDK live next to this file: edit them like any plugin code.
+const here = path.dirname(fileURLToPath(import.meta.url))
+const SHELL = path.join(here, "shell.html")
+const UI_SDK = path.join(here, "ui-sdk.js")
 
 export const UI_GUIDE = `The web interface is made of plugins. A plugin adds a browser module with ctx.ui(fn); fn runs in the
 browser (it is serialized with toString, so it cannot use server variables) and receives the UI SDK:
@@ -86,7 +85,6 @@ const cookie = (req: http.IncomingMessage, name: string) =>
 
 export default Plugin.define({
   id: "web",
-  sourceFiles: [fileURLToPath(import.meta.url), Assets.shell, Assets.uiSdk],
   setup: (ctx) =>
     Effect.gen(function*() {
       const pie = ctx.pie
@@ -128,17 +126,17 @@ export default Plugin.define({
             return res.end("Open the URL with ?token=… printed by Pie.")
           }
           res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-          return res.end(typeof ctx.options.shell === "string" ? ctx.options.shell : fs.readFileSync(Assets.shell))
+          return res.end(typeof ctx.options.shell === "string" ? ctx.options.shell : fs.readFileSync(SHELL))
         }
         if (!authorized(req)) return json(res, 401, { error: "unauthorized" })
 
-        if (parts[0] === "vendor" && parts[1] && Assets.vendor[parts[1]]) {
+        if (parts[0] === "vendor" && parts[1] && WebAssets.vendor[parts[1]]) {
           res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "max-age=3600" })
-          return res.end(fs.readFileSync(Assets.vendor[parts[1]]!))
+          return res.end(fs.readFileSync(WebAssets.vendor[parts[1]]!))
         }
         if (url.pathname === "/ui.mjs") {
           res.writeHead(200, { "content-type": "text/javascript; charset=utf-8", "cache-control": "no-store" })
-          return res.end(fs.readFileSync(Assets.uiSdk))
+          return res.end(fs.readFileSync(UI_SDK))
         }
         if (parts[0] === "ui" && parts[1]?.endsWith(".mjs")) {
           const module = (await run(pie.registries.ui.get)).get(parts[1].slice(0, -4))
@@ -193,11 +191,12 @@ export default Plugin.define({
         }
         if (url.pathname === "/api/plugins") return json(res, 200, await run(pie.plugins.explain))
         if (url.pathname === "/api/plugins/undo" && method === "POST") {
-          const { head } = await run(pie.plugins.explain)
-          const history = (await run(pie.plugins.explain)).history.filter((h) => h.seq < head && h.type !== "config/good")
-          const toSeq = history.length > 0 ? history[history.length - 1]!.seq : 0
-          json(res, 200, { toSeq })
-          return applyAfterResponse(pie.plugins.rollback(toSeq, "web: undo the last change"))
+          // Back to the snapshot before the current one.
+          const { head, history } = await run(pie.plugins.explain)
+          const previous = history.filter((h) => h.type === "plugins/snapshot" && h.seq < head).at(-1)
+          if (!previous) return json(res, 409, { error: "nothing to undo" })
+          json(res, 200, { toSeq: previous.seq })
+          return applyAfterResponse(pie.plugins.rollback(previous.seq, "web: undo the last change"))
         }
         if (url.pathname === "/api/plugins/rollback" && method === "POST") {
           const body = await readBody(req)
@@ -207,7 +206,7 @@ export default Plugin.define({
         if (url.pathname === "/api/plugins/remove" && method === "POST") {
           const body = await readBody(req)
           json(res, 200, { ok: true })
-          return applyAfterResponse(pie.plugins.remove(String(body.id)))
+          return applyAfterResponse(pie.plugins.disable(String(body.id), `web: disable ${String(body.id)} (its UI failed)`))
         }
         if (url.pathname === "/api/client-errors" && method === "POST") {
           const body = await readBody(req)

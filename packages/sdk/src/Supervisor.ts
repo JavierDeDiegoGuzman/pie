@@ -4,12 +4,12 @@
  * Runs the Pie program as a child process and starts it again when it exits
  * with RESTART_EXIT_CODE (a plugin change in reload: "restart"). If it crashes
  * `maxQuickCrashes` times in a row within `quickCrashMs` of starting, the last
- * configuration change is assumed to be the cause: the configuration log is
- * rolled back to the last composition marked good, without loading plugins,
- * and the program starts again.
+ * change to the plugins is assumed to be the cause: the plugins folder is
+ * restored to the last snapshot marked good, without loading plugins, and the
+ * program starts again.
  *
  *   // supervisor.ts (never changes)
- *   Supervisor.run({ script: "./agent.ts", database: "pie.db" })
+ *   Supervisor.run({ script: "./agent.ts", home: ".pie" })
  */
 import { spawn } from "node:child_process"
 import * as Recovery from "./core/Recovery.ts"
@@ -20,8 +20,8 @@ export interface RunOptions {
   readonly script: string
   readonly args?: ReadonlyArray<string>
   readonly nodeArgs?: ReadonlyArray<string>
-  /** Database of the program; enables the automatic rollback. */
-  readonly database?: string
+  /** Pie home of the program (`.pie`); enables the automatic rollback. */
+  readonly home?: string
   readonly quickCrashMs?: number
   readonly maxQuickCrashes?: number
   /** Called before each (re)start; return false to stop. */
@@ -39,7 +39,8 @@ export const run = (options: RunOptions): Promise<number> =>
       attempt++
       const startedAt = Date.now()
       const child = spawn(process.execPath, [...(options.nodeArgs ?? ["--no-warnings"]), options.script, ...(options.args ?? [])], {
-        stdio: "inherit"
+        stdio: "inherit",
+        env: { ...process.env, PIE_SUPERVISED: "1" }
       })
       child.on("exit", (code) => {
         if (code === 0) return resolve(0)
@@ -48,10 +49,10 @@ export const run = (options: RunOptions): Promise<number> =>
           return start()
         }
         quickCrashes = Date.now() - startedAt < (options.quickCrashMs ?? 15_000) ? quickCrashes + 1 : 0
-        if (options.database && quickCrashes >= (options.maxQuickCrashes ?? 2)) {
+        if (options.home && quickCrashes >= (options.maxQuickCrashes ?? 2)) {
           quickCrashes = 0
           const reason = `automatic: crashed ${options.maxQuickCrashes ?? 2} times in a row right after starting (exit ${code})`
-          Recovery.run(Recovery.rollback(options.database, "last-good", reason)).then(
+          Recovery.run(Recovery.rollback(options.home, "last-good", reason)).then(
             (result) => {
               options.onRollback?.({ toSeq: result.toSeq, reason })
               start()

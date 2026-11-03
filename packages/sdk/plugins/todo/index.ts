@@ -15,9 +15,7 @@
  * log, so installing it again brings the list back.
  */
 import { Effect, Schema } from "effect"
-import { fileURLToPath } from "node:url"
-import * as Plugin from "../core/Plugin.ts"
-import { defineTool } from "../core/Registry.ts"
+import { Plugin, defineTool } from "@pie/sdk"
 
 export interface Item {
   readonly id: number
@@ -37,7 +35,6 @@ const render = (state: TodoState) =>
 
 export default Plugin.define({
   id: "todo",
-  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     Effect.gen(function*() {
       yield* ctx.events({

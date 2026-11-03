@@ -77,30 +77,43 @@ eventos registran **hechos**, no valores calculados del estado: las tools de un
 mismo paso corren en paralelo, así que ids, contadores y totales se derivan en
 la proyección (el plugin `todo` es el ejemplo).
 
-## Automodificación y vuelta atrás (`core/Plugins.ts`, `plugins/self.ts`)
+## Automodificación y vuelta atrás
 
-Todo lo que está por encima del núcleo es modificable por el agente, incluidos
-los plugins de serie, `self` y la interfaz web. La red de seguridad no son las
-protecciones (no hay ninguna por defecto) sino poder volver atrás siempre.
+**El SDK es fijo; todos los plugins son modificables.** Cada instalación de Pie
+tiene un hogar (`.pie`): `pie.db` (sesiones y log de configuración) y
+`plugins/`, una carpeta por plugin con su `index.ts` y lo que necesite (el
+plugin `web` lleva ahí su `shell.html` y su `ui-sdk.js`). Un hogar nuevo se
+siembra desde las plantillas del SDK (`packages/sdk/plugins/`).
+
+Como en pi, el prompt le dice al agente dónde están sus plugins, el SDK (solo
+lectura), las plantillas y la documentación. El agente los lee y edita con sus
+herramientas normales (`read`, `edit`, `write`) y aplica los cambios con la tool
+`restart`:
 
 ```
-plugin_install(source) → validar en una composición desechable → plugin/installed (con el código)
-plugin_try(source)     → solo en este proceso; plugin_keep(id) lo hace permanente
-plugin_rollback(#n)    → config/reset: la composición de justo después del cambio #n (se puede deshacer)
+restart(reason) → valida los plugins cambiados en una composición desechable
+                  (si uno no carga: no se aplica nada y devuelve los errores)
+               → plugins/snapshot: el contenido completo de la carpeta
+               → aplica: hot (en este proceso) o restart (punto seguro → sale con 75 → el supervisor relanza)
 ```
 
-Formas de volver atrás, de más a menos automática:
+`plugins.json` fija el orden y los plugins desactivados. Un plugin del host
+(`sdk-guard`, fuera de la carpeta) deniega `write`/`edit` dentro del SDK; con
+`bash` se podría saltar, así que es una barrera para el camino normal, no un
+sandbox.
+
+Formas de volver atrás (todas restauran una instantánea de la carpeta y lo
+registran como una instantánea nueva, así que también se pueden deshacer):
 
 | Vía | Cómo | Depende de plugins |
 |---|---|---|
-| Automática | Tras arrancar bien un rato, o al completar un run, se añade `config/good`. Si el proceso se cae dos veces seguidas nada más arrancar, el supervisor vuelve a la última buena | No |
-| Interfaz web | Menú «Plugins y deshacer»: deshacer el último cambio, volver a la última buena o a cualquier punto; banner con «quitar» cuando un módulo de UI falla | Sí (el plugin `web`) |
-| Terminal | `pie explain --db …`, `pie rollback --db … --to N` o `--last-good` | No |
-| Modo seguro | `PIE_SAFE=1`: solo los plugins de serie, ignorando los cambios del agente | No |
+| Automática | Tras arrancar bien un rato, o al completar un run, se añade `config/good`. Si el proceso se cae dos veces seguidas nada más arrancar, el supervisor restaura la última buena | No |
+| Agente | `plugin_rollback`, `plugin_explain` | Sí (`self`) |
+| Interfaz web | Menú «Plugins y deshacer» y banner de módulo roto («Desactivar») | Sí (`web`) |
+| Terminal | `pie explain`, `pie rollback --to N` o `--last-good` (con `--home`) | No |
+| Modo seguro | `PIE_SAFE=1`: carga las plantillas del SDK en vez de la carpeta | No |
 
-Opciones: `required` (plugins que deben cargar o el arranque falla, y el
-supervisor hace rollback), `protected` (ids que el agente no puede cambiar),
-`reload: "hot" | "restart"`.
+Los cambios hechos a mano con Pie apagado se registran al arrancar.
 
 ## Interfaz web (`plugins/web.ts`, `plugins/web-chat.ts`, `web/`)
 
@@ -111,8 +124,10 @@ supervisor hace rollback), `protected` (ids que el agente no puede cambiar),
   y recibe el SDK. Cada módulo está aislado: si falla, la página lo dice y
   ofrece quitarlo o deshacer. Los cambios llegan a la página en vivo.
 - El chat es otro plugin (`web-chat`) y el panel de tareas lo aporta `todo`.
+- La página base (cabecera incluida) es `plugins/web/shell.html`: para
+  cambiarla se edita ese archivo, no se tapa desde otro plugin con CSS.
 - El agente usa `web_inspect` antes de cambiar la UI.
-- `pie serve --db pie.db --cwd .` lanza la app bajo el supervisor.
+- `pie serve --home .pie --cwd .` lanza la app bajo el supervisor.
 
 ## Workflows de Effect sobre la misma base de datos (`core/LogWorkflowEngine.ts`)
 

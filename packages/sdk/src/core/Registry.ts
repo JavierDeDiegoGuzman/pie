@@ -101,6 +101,7 @@ export type ToolDecision =
 
 export interface ToolBeforeEvent {
   readonly sessionId: string
+  readonly cwd: string
   readonly toolCallId: string
   readonly tool: string
   /** Mutable: hooks may rewrite parameters. */

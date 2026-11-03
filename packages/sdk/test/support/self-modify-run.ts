@@ -1,22 +1,25 @@
 /**
- * Child process: a scripted agent installs a broken plugin (rejected), then a
- * valid one, then uses its tool. Plugin sources import "effect" and "@pie/sdk"
- * from a cache directory outside the repo (Pie's module resolver).
+ * Child process: a scripted agent writes a broken plugin into its plugins
+ * folder (restart refuses it), then a valid one (restart applies it), then
+ * uses its tool. The home is outside the repo, so the plugin's imports of
+ * "effect" and "@pie/sdk" go through Pie's module resolver.
  *
- *   node self-modify-run.ts <db> <cacheDir> <hot|restart> <outFile>
+ *   node self-modify-run.ts <home> <hot|restart> <outFile>
  *
- * In restart mode it runs under Supervisor: installing exits with the restart
+ * In restart mode it runs under Supervisor: restart exits with the restart
  * code and the next process resumes the run with the plugin loaded.
  */
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import * as fs from "node:fs"
-import { Pie, Storage } from "../../src/index.ts"
+import * as path from "node:path"
+import * as Pie from "../../src/Pie.ts"
 import { FAKE_MODEL, fakeModelPlugin, toolResults } from "./fake-model.ts"
 
-const [db, cacheDir, mode, outFile] = process.argv.slice(2) as [string, string, "hot" | "restart", string]
+const [home, mode, outFile] = process.argv.slice(2) as [string, "hot" | "restart", string]
 fs.appendFileSync(`${outFile}.starts`, "start\n")
 
+const file = path.join(home, "plugins", "word-count", "index.ts")
 const VALID = `import { Effect, Schema } from "effect"
 import { Plugin, defineTool } from "@pie/sdk"
 
@@ -34,24 +37,23 @@ export default Plugin.define({
     })
 })
 `
-
+const restart = { name: "restart", params: { reason: "word counter" } }
+const steps = [
+  { name: "write", params: { path: file, content: "export default {{ broken" } },
+  restart,
+  { name: "write", params: { path: file, content: VALID } },
+  restart,
+  { name: "word_count", params: { text: "uno dos tres" } }
+]
 const model = fakeModelPlugin((messages) => {
-  switch (toolResults(messages).length) {
-    case 0:
-      return { tools: [{ name: "plugin_install", params: { source: "export default {{ broken" } }] }
-    case 1:
-      return { tools: [{ name: "plugin_install", params: { source: VALID } }] }
-    case 2:
-      return { tools: [{ name: "word_count", params: { text: "uno dos tres" } }] }
-    default:
-      return { text: "done" }
-  }
+  const n = toolResults(messages).length
+  return n < steps.length ? { tools: [steps[n]!] } : { text: "done" }
 })
 
 const program = Effect.gen(function*() {
   const pie = yield* Pie.Pie
   const existing = (yield* pie.list).find((s) => s.id === "s1")
-  const session = existing ? yield* pie.open("s1") : yield* pie.create({ id: "s1", cwd: cacheDir, model: FAKE_MODEL })
+  const session = existing ? yield* pie.open("s1") : yield* pie.create({ id: "s1", cwd: home, model: FAKE_MODEL })
   if (!existing) yield* session.prompt("give yourself a word counter")
   const outcome = yield* session.awaitIdle
   const events = yield* session.events
@@ -61,12 +63,7 @@ const program = Effect.gen(function*() {
 NodeRuntime.runMain(
   program.pipe(
     Pie.exitOnRestart,
-    Effect.provide(Pie.layer({
-      storage: Storage.sqlite(db),
-      plugins: [model, ...Pie.builtins.filter((p) => p.id !== "opencode-go")],
-      reload: mode,
-      pluginCacheDirectory: cacheDir
-    })),
+    Effect.provide(Pie.layer({ home, seed: ["coding-tools", "self"], plugins: [model], reload: mode })),
     Effect.scoped,
     Effect.timeout("30 seconds"),
     Effect.andThen(Effect.sync(() => process.exit(0)))

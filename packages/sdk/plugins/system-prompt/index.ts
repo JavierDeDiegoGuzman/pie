@@ -3,8 +3,7 @@
  * (cwd, date, platform). Replace or disable it to change the agent's persona.
  */
 import { Effect } from "effect"
-import { fileURLToPath } from "node:url"
-import * as Plugin from "../core/Plugin.ts"
+import { Plugin } from "@pie/sdk"
 
 export const BASE_PROMPT = `You are Pie, a coding agent that works in the user's repository through tools.
 
@@ -18,7 +17,6 @@ Guidelines:
 
 export default Plugin.define({
   id: "system-prompt",
-  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     Effect.gen(function*() {
       const text = typeof ctx.options.text === "string" ? ctx.options.text : BASE_PROMPT

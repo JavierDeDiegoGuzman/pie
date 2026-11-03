@@ -330,6 +330,7 @@ export class Runtime extends Context.Service<Runtime, {
           if (decoded._tag === "Failure") return { content: `Invalid parameters: ${String(decoded.failure)}`, isError: true }
           const before: ToolBeforeEvent = {
             sessionId,
+            cwd: session.cwd,
             toolCallId: call.id,
             tool: call.name,
             params: decoded.success,

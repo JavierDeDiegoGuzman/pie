@@ -1,7 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
 import { Effect } from "effect"
 import * as path from "node:path"
-import { Pie, Plugins, Storage, TodoPlugin, WebChatPlugin, WebPlugin } from "../src/index.ts"
+import * as fs from "node:fs"
+import { Pie, Plugins } from "../src/index.ts"
+import { testHome } from "./support/home.ts"
 import { FAKE_MODEL, fakeModelPlugin, last, lastUserText } from "./support/fake-model.ts"
 
 const PORT = 4150
@@ -24,9 +26,8 @@ const page = () =>
     }
   })
 
-const sdk = path.join(import.meta.dirname, "..", "src", "index.ts")
 const uiPlugin = `
-import { Plugin } from ${JSON.stringify(sdk)}
+import { Plugin } from "@pie/sdk"
 export default Plugin.define({ id: "status-badge", setup: (ctx) => ctx.ui(({ html, ui }) => ui.slot("header", () => html\`<b>ok</b>\`)) })
 `
 
@@ -68,43 +69,43 @@ describe("web plugin", () => {
       expect(todo.value.items.map((i: any) => i.text)).toEqual(["buy milk"])
       expect(received.join("")).toContain('"todo/added"')
 
-      // the agent changes the UI; the page is told; undo brings it back
+      // A new UI plugin: a folder in the plugins folder, applied with restart; the page is told; undo removes it.
       const plugins = yield* Plugins
-      yield* Effect.orDie(plugins.install(uiPlugin))
+      const folder = plugins.folder!
+      fs.mkdirSync(path.join(folder, "status-badge"), { recursive: true })
+      fs.writeFileSync(path.join(folder, "status-badge", "index.ts"), uiPlugin)
+      expect((yield* plugins.explain).pending).toEqual(["status-badge"])
+      yield* Effect.orDie(plugins.restart("status badge"))
       yield* Effect.sleep("100 millis")
       expect(received.join("")).toContain('"status-badge"')
       expect((yield* get("/api/state")).ui.map((m: any) => m.id)).toContain("status-badge")
       yield* post("/api/plugins/undo")
-      yield* Effect.sleep("100 millis")
+      yield* Effect.sleep("150 millis")
       expect((yield* get("/api/state")).ui.map((m: any) => m.id)).not.toContain("status-badge")
-
-      // The agent reads the built-in web plugin and replaces it with its own page, keeping port and token.
-      const files = yield* Effect.orDie(plugins.source("web"))
-      expect(Object.keys(files)).toEqual(expect.arrayContaining(["web.ts", "shell.html", "ui-sdk.js"]))
+      expect(fs.existsSync(path.join(folder, "status-badge"))).toBe(false)
       controller.abort()
-      yield* Effect.orDie(plugins.install(`
-import { Plugin, WebPlugin } from ${JSON.stringify(sdk)}
-export default Plugin.define({ id: "web", setup: (ctx) => WebPlugin.setup({ ...ctx, options: { ...ctx.options, shell: "<p>mine</p>" } }) })
-`))
-      expect(yield* page()).toBe("<p>mine</p>")
+
+      // Changing the page: edit the web plugin's own shell.html (the plugin that owns it), restart, undo.
+      const shell = path.join(folder, "web", "shell.html")
+      fs.writeFileSync(shell, fs.readFileSync(shell, "utf8").replace("<title>Pie</title>", "<title>Mine</title>"))
+      yield* Effect.orDie(plugins.restart("rename the page"))
+      expect(yield* page()).toContain("<title>Mine</title>")
       yield* page() // settle the connection pool on the new server
       yield* post("/api/plugins/undo") // answered before it is applied, so never retried
       yield* Effect.sleep("200 millis")
-      expect(yield* page()).toContain("importmap")
+      expect(yield* page()).toContain("<title>Pie</title>")
     }).pipe(
       Effect.provide(Pie.layer({
-        storage: Storage.memory,
+        home: testHome("web"),
+        seed: ["todo", "web", "web-chat"],
+        pluginOptions: { web: { port: PORT, token: "t" } },
         plugins: [
           fakeModelPlugin((messages) => {
             const text = lastUserText(messages)
             if (last(messages).role === "tool") return { text: "ok" }
             return text.startsWith("add ") ? { tools: [{ name: "todo", params: { action: "add", text: text.slice(4) } }] } : { text: "?" }
-          }),
-          TodoPlugin,
-          { plugin: WebPlugin, options: { port: PORT, token: "t" } },
-          WebChatPlugin
-        ],
-        pluginCacheDirectory: path.join(import.meta.dirname, ".tmp", "plugin-cache")
+          })
+        ]
       })),
       Effect.scoped
     ), 20_000)
