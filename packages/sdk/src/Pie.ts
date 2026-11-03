@@ -182,7 +182,10 @@ export const layer = (options: LayerOptions) => {
   const startup = Layer.effectDiscard(Effect.gen(function*() {
     manager = yield* Plugins
     const events = yield* Events
-    yield* (yield* Runtime).start
+    const runtime = yield* Runtime
+    // Edits to the plugins folder apply by themselves before the next step of any session.
+    yield* runtime.beforeStep(manager.sync)
+    yield* runtime.start
     // The snapshot is "good" once Pie has been up for a while, and after each completed run.
     const plugins = manager
     yield* plugins.markGood.pipe(Effect.delay(options.goodAfter ?? 3000), Effect.forkScoped)

@@ -427,7 +427,7 @@ describe("plugin state as events", () => {
     ))
 })
 
-describe("self-modification: edit the plugins folder, then restart", () => {
+describe("self-modification: edit the plugins folder; edits apply before the next step", () => {
   const plugin = (body: string) => `import { Effect, Schema } from "effect"
 import { Plugin, defineTool } from "@pie/sdk"
 export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
@@ -440,31 +440,30 @@ export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
   })`)
   const notEffect = plugin(`(() => {})`)
 
-  it.live("broken edits are refused with their errors (nothing applied); a valid one is applied and used in the same run", () => {
+  it.live("edits apply before the next step: broken ones are refused with their errors, a valid one is used in the same run", () => {
     const home = testHome("selfmod")
     const file = path.join(home, "plugins", "word-count", "index.ts")
     const write = (content: string) => ({ name: "write", params: { path: file, content } })
-    const restart = { name: "restart", params: { reason: "word counter" } }
     return Effect.gen(function*() {
       const pie = yield* Pie.Pie
       const session = yield* pie.create({ cwd: home, model: FAKE_MODEL })
       yield* session.prompt("teach yourself to count words")
       yield* session.awaitIdle
-      const results = data<{ name: string; isError: boolean; content: string }>(yield* session.events, "tool/finished")
+      const events = yield* session.events
+      const results = data<{ name: string; isError: boolean; content: string }>(events, "tool/finished")
       expect(results.map((r) => [r.name, r.isError])).toEqual([
         ["write", false],
-        ["restart", true],
         ["write", false],
-        ["restart", true],
         ["write", false],
-        ["restart", false],
         ["word_count", false]
       ])
-      expect(results[1]?.content).toContain("Nothing applied")
-      expect(results[3]?.content).toContain("setup must return an Effect")
-      expect(results[5]?.content).toContain("Changed: word-count")
-      expect(results[6]?.content).toBe("3")
-      // The SDK is read-only for the agent.
+      expect(results[3]?.content).toBe("3")
+      // What Pie told the model before each step is in the log.
+      const notices = data<{ text: string }>(events, "notice").map((n) => n.text)
+      expect(notices).toHaveLength(3)
+      expect(notices[0]).toContain("NOT applied")
+      expect(notices[1]).toContain("setup must return an Effect")
+      expect(notices[2]).toContain("applied (word-count")
       expect(fs.readFileSync(file, "utf8")).toBe(valid)
     }).pipe(
       Effect.provide(Pie.layer({
@@ -472,7 +471,7 @@ export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
         seed: ["coding-tools", "self"],
         plugins: [
           fakeModelPlugin((messages) => {
-            const steps = [write("export default {{ broken"), restart, write(notEffect), restart, write(valid), restart]
+            const steps = [write("export default {{ broken"), write(notEffect), write(valid)]
             const n = toolResults(messages).length
             if (n < steps.length) return { tools: [steps[n]!] }
             if (n === steps.length) return { tools: [{ name: "word_count", params: { text: "uno dos tres" } }] }

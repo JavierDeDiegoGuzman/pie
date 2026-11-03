@@ -58,6 +58,8 @@ export default Plugin.define({
             }</div>`
           case "tool/finished":
             return html`<details class=${"tool" + (d.isError ? " error" : "")}><summary>${d.name}${d.isError ? " · error" : ""}</summary><pre>${d.content}</pre></details>`
+          case "notice":
+            return html`<details class=${"tool notice" + (d.text.includes("NOT applied") ? " error" : "")}><summary>Pie: ${d.text.split("\n")[0].slice(0, 120)}</summary><pre>${d.text}</pre></details>`
           case "run/ended":
             return html`<div class="run-end">— ${d.status}${d.message ? `: ${d.message}` : ""} ·
               <span class="fork" onClick=${() => api.post(`/api/sessions/${session}/navigate`, { eventId: event.id })}>continuar desde aquí</span> —</div>`

@@ -7,7 +7,7 @@ flowchart TB
     agent["Agent<br/>evolve · decide · vista (puros)"]
     log[("Log de sesión<br/>árbol de eventos")]
     cfg[("Log de configuración<br/>instantáneas de la carpeta")]
-    mgr["Plugins<br/>validar · instantánea · hot / restart · rollback"]
+    mgr["Plugins<br/>antes de cada paso: validar · instantánea · aplicar · rollback"]
     guard["sdk-guard<br/>el SDK es de solo lectura"]
     reg["Registries (State)<br/>tools · modelos · prompt · hooks · eventos · proyecciones · reacciones"]
     host2["PluginHost<br/>cada plugin en su Scope"]
@@ -15,7 +15,7 @@ flowchart TB
   end
   subgraph PLUGINS[".pie/plugins/ (carpetas que el agente edita)"]
     p1["opencode-go"]
-    p2["coding-tools: read · write · edit · bash · restart"]
+    p2["coding-tools: read · write · edit · bash"]
     p3["system-prompt · context-files"]
     p4["self: guía y rutas"]
     p5["web · web-chat · los del agente"]
@@ -28,6 +28,6 @@ flowchart TB
   mgr --> host2 --> reg
   rt --> reg
   p1 & p2 & p3 & p4 & p5 --> host2
-  p2 -. restart .-> mgr
+  rt -. sync antes de cada paso .-> mgr
   guard --> host2
   wf --> log

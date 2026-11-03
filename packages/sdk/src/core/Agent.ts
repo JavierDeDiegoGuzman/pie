@@ -78,6 +78,8 @@ export interface CoreEvents {
   readonly "abort/requested": { readonly runId: string }
   readonly "run/ended": { readonly runId: string; readonly status: RunStatus; readonly message?: string | undefined }
   readonly "model/selected": { readonly model: string }
+  /** Something Pie tells the model before a step (e.g. plugin changes applied or refused); seen as a user message. */
+  readonly notice: { readonly text: string }
 }
 
 export type CoreEventType = keyof CoreEvents
@@ -266,6 +268,8 @@ export const toMessages = (events: ReadonlyArray<LogEvent>): Array<Prompt.Messag
   for (const event of events) {
     if (isCore(event, "user")) {
       messages.push({ role: "user", content: event.data.text })
+    } else if (isCore(event, "notice")) {
+      messages.push({ role: "user", content: `[Pie] ${event.data.text}` })
     } else if (isCore(event, "model/responded")) {
       const content: Array<Prompt.AssistantMessagePartEncoded> = []
       if (event.data.text.length > 0) content.push({ type: "text", text: event.data.text })

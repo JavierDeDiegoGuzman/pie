@@ -5,9 +5,10 @@
  *
  *   node src/app.ts [--home .pie] [--cwd /path/to/repo] [--port 4100]
  *
- * Under the supervisor, the agent's restart tool really restarts Pie; run
- * directly, changes apply in this process. PIE_SAFE=1 loads the SDK templates
- * instead of the plugins folder.
+ * Edits to the plugins folder apply in this process before the next step of
+ * any session; the supervisor only restarts Pie when it exits, and rolls the
+ * plugins back if Pie keeps crashing at startup. PIE_SAFE=1 loads the SDK
+ * templates instead of the plugins folder.
  */
 import * as path from "node:path"
 import { NodeRuntime } from "@effect/platform-node"
@@ -30,7 +31,7 @@ NodeRuntime.runMain(
       home,
       seed: [...Pie.DEFAULT_SEED, "web", "web-chat"],
       pluginOptions: { web: { cwd, ...(flag("port") ? { port: Number(flag("port")) } : {}) } },
-      reload: (flag("reload") as "hot" | "restart" | undefined) ?? (process.env.PIE_SUPERVISED === "1" ? "restart" : "hot")
+      reload: "hot"
     })),
     Effect.scoped
   )

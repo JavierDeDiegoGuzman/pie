@@ -7,17 +7,18 @@
  *   - host plugins passed to Pie.layer in memory (tests, embedding apps, the
  *     SDK guard): not editable from the folder.
  *
- * Changes to the folder are applied with `restart` (the agent's restart
- * tool): the changed plugins are validated in a throwaway composition; if
- * they load, a snapshot of the whole folder is recorded in the configuration
- * log and the change is applied — in this process (reload "hot") or by
- * draining to a safe point and letting the supervisor restart Pie (reload
- * "restart"). `rollback` restores the files of an earlier snapshot. Safe mode
- * loads the SDK templates instead of the folder.
+ * Changes to the folder apply by themselves before the next step of any
+ * session (`sync`, called by the runtime): the changed plugins are validated
+ * in a throwaway composition; if they load, a snapshot of the whole folder is
+ * recorded in the configuration log and the change is applied in this
+ * process; if not, nothing is applied and the session is told why. `restart`
+ * does the same on demand (and, with reload "restart", drains and lets the
+ * supervisor restart Pie: for embedders). `rollback` restores the files of an
+ * earlier snapshot. Safe mode loads the SDK templates instead of the folder.
  */
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import { Context, Data, Deferred, Effect, FileSystem, Layer, Path } from "effect"
+import { Context, Data, Deferred, Effect, FileSystem, Layer, Path, Semaphore } from "effect"
 import { type ConfigEvent, ConfigLog, type ConfigState, type Files, hashFiles } from "./ConfigLog.ts"
 import * as Core from "./Core.ts"
 import type { Plugin } from "./Plugin.ts"
@@ -74,6 +75,12 @@ export class Plugins extends Context.Service<Plugins, {
   readonly folder: string | undefined
   /** Validates what changed in the plugins folder, records a snapshot and applies it. */
   readonly restart: (reason: string) => Effect.Effect<{ readonly changed: ReadonlyArray<string> }, PluginRejected>
+  /**
+   * Applies edits to the plugins folder, in this process, if there are any: runs before every step of every
+   * session. Returns what the session's model should be told (applied, or refused with the errors), once per
+   * change and session; undefined when there is nothing new to say.
+   */
+  readonly sync: (sessionId: string) => Effect.Effect<string | undefined>
   /** Restores the plugins folder of snapshot `toSeq` and applies it (recorded, so it can be undone). */
   readonly rollback: (toSeq: number, reason: string) => Effect.Effect<void, PluginRejected>
   /** Disables a folder plugin in plugins.json and applies it. */
@@ -130,9 +137,11 @@ export class Plugins extends Context.Service<Plugins, {
         )
       }
 
+      let appliedHash: string | undefined // hash of the folder as last applied
       /** Makes the loaded folder plugins match `files` (or the templates in safe mode). */
       const apply = (files: Files) =>
         Effect.gen(function*() {
+          appliedHash = hashFiles(files)
           const base = options.safe ? Folder.TEMPLATES : folder
           if (base === undefined) return
           const source = options.safe ? yield* Effect.promise(() => Folder.templateFiles(options.seed)) : files
@@ -189,11 +198,9 @@ export class Plugins extends Context.Service<Plugins, {
       const changedPlugins = (files: Files) =>
         Folder.enabledPlugins(files).filter((id) => loaded.get(id) !== hashFiles(Folder.pluginFiles(files, id)))
 
-      const restart = (reason: string) =>
+      /** Validates the changed plugins of `files`; nothing is applied. */
+      const check = (files: Files) =>
         Effect.gen(function*() {
-          if (folder === undefined) return yield* new PluginRejected({ message: "this Pie has no plugins folder" })
-          if (options.safe) return yield* new PluginRejected({ message: "safe mode: the plugins folder is not loaded" })
-          const files = yield* read
           const changed = changedPlugins(files)
           const errors: Array<string> = []
           if (files[Folder.MANIFEST] !== undefined) {
@@ -204,23 +211,72 @@ export class Plugins extends Context.Service<Plugins, {
             }
           }
           for (const id of changed) {
-            const result = yield* importFolderPlugin(folder, id, files).pipe(
+            const result = yield* importFolderPlugin(folder!, id, files).pipe(
               Effect.flatMap(({ plugin }) => validate(plugin)),
               Effect.result
             )
             if (result._tag === "Failure") errors.push(`${id}: ${result.failure}`)
           }
+          return { changed, errors }
+        })
+
+      const snapshot = (files: Files, reason: string) =>
+        Effect.gen(function*() {
+          const hash = hashFiles(files)
+          if ((yield* config.state).current?.hash !== hash) yield* config.append("plugins/snapshot", { files, hash, reason })
+          return (yield* config.state).head
+        })
+
+      const lock = yield* Semaphore.make(1)
+
+      const restart = (reason: string) =>
+        lock.withPermits(1)(Effect.gen(function*() {
+          if (folder === undefined) return yield* new PluginRejected({ message: "this Pie has no plugins folder" })
+          if (options.safe) return yield* new PluginRejected({ message: "safe mode: the plugins folder is not loaded" })
+          const files = yield* read
+          const { changed, errors } = yield* check(files)
           if (errors.length > 0) {
             return yield* new PluginRejected({ message: `Nothing applied; fix these and call restart again:\n${errors.join("\n")}` })
           }
-          const hash = hashFiles(files)
-          if ((yield* config.state).current?.hash !== hash) yield* config.append("plugins/snapshot", { files, hash, reason })
+          yield* snapshot(files, reason)
           yield* requestChange(files)
           return { changed }
-        })
+        }))
+
+      // What each session was last told, by folder hash: say each result once per session.
+      const told = new Map<string, string>()
+      let refused: { readonly hash: string; readonly text: string } | undefined
+      const sync = (sessionId: string) =>
+        lock.withPermits(1)(Effect.gen(function*() {
+          if (folder === undefined || options.safe) return undefined
+          const files = yield* read
+          const hash = hashFiles(files)
+          if (hash === appliedHash) return undefined
+          if (refused?.hash !== hash) {
+            const { changed, errors } = yield* check(files)
+            if (errors.length === 0) {
+              const what = changed.length > 0 ? changed.join(", ") : "plugins.json"
+              const seq = yield* snapshot(files, `applied before the next step: ${what} changed`)
+              yield* apply(files)
+              refused = undefined
+              told.set(sessionId, hash)
+              return `Your edits to the plugins folder are applied (${what}; snapshot #${seq}, undoable with pie rollback).`
+            }
+            refused = {
+              hash,
+              text: `Your edits to the plugins folder were NOT applied; Pie keeps running the previous version of every ` +
+                `plugin. Fix these and they apply before your next step:\n${errors.join("\n")}`
+            }
+          }
+          if (told.get(sessionId) === hash) return undefined
+          told.set(sessionId, hash)
+          return refused.text
+        })).pipe(
+          Effect.catchCause((cause) => Effect.as(Effect.logWarning("plugins: applying the folder failed", cause), undefined))
+        )
 
       const rollback = (toSeq: number, reason: string) =>
-        Effect.gen(function*() {
+        lock.withPermits(1)(Effect.gen(function*() {
           if (folder === undefined) return yield* new PluginRejected({ message: "this Pie has no plugins folder" })
           const event = yield* config.get(toSeq)
           if (!event || event.type !== "plugins/snapshot") {
@@ -230,11 +286,12 @@ export class Plugins extends Context.Service<Plugins, {
           yield* Effect.promise(() => Folder.writeFiles(folder, files))
           yield* config.append("plugins/snapshot", { files, hash, reason: `rollback to #${toSeq}: ${reason}` })
           yield* requestChange(files)
-        })
+        }))
 
       return Plugins.of({
         folder,
         restart,
+        sync,
         rollback,
         disable: (id, reason) =>
           Effect.gen(function*() {

@@ -38,7 +38,7 @@
 <div class="note"><code>model/requested</code> guarda el prompt del sistema y las tools ofrecidas: lo que ve el modelo está en el log. Los ids de evento son deterministas (run, turno, llamada), así que repetir un paso nunca duplica nada.</div></div>
 
 <h2>4 · Automodificación</h2>
-<p class="lead">El SDK es fijo; cada plugin es una carpeta en <code>.pie/plugins/</code> que el agente edita con sus tools normales y aplica con <code>restart</code>. Cada restart guarda una instantánea completa de la carpeta; volver a cualquiera es <code>pie rollback</code> (el agente lo lanza con bash; también desde la web, o el supervisor si Pie no arranca).</p>
+<p class="lead">El SDK es fijo; cada plugin es una carpeta en <code>.pie/plugins/</code> que el agente edita con sus tools normales; Pie aplica los cambios solo antes del siguiente paso (o le dice por qué no). Cada cambio aplicado guarda una instantánea completa de la carpeta; volver a cualquiera es <code>pie rollback</code> (el agente lo lanza con bash; también desde la web, o el supervisor si Pie no arranca).</p>
 <div class="box"><img class="diagram" src="diagramas/automodificacion.svg" alt="Automodificación"></div>
 
 <h2>5 · Qué se persiste</h2>
@@ -75,7 +75,7 @@
 <tr><td>Tools de plugin en paralelo que leen estado</td><td>Los eventos registran hechos; ids y contadores los deriva la proyección.</td><td><span class="tag ok">probado</span></td></tr>
 <tr><td>Bifurcar (navigate) con estado de plugin</td><td>La proyección es la de la rama.</td><td><span class="tag ok">probado</span></td></tr>
 <tr><td>Plugin roto, o que usa un punto de política</td><td>Rechazado en la validación; nada cambia.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Instalar un plugin a mitad de run (hot y restart)</td><td>Su tool aparece en la siguiente llamada; en restart, tras drenar y relanzar.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Instalar un plugin a mitad de run</td><td>Se aplica antes del siguiente paso y su tool aparece en esa llamada; si no carga, el agente recibe los errores.</td><td><span class="tag ok">probado</span></td></tr>
 <tr><td>Workflow de Effect con SIGKILL</td><td>Actividades hechas no se repiten; el reloj mantiene su hora; la aprobación lo reanuda; el resultado queda guardado.</td><td><span class="tag ok">probado</span></td></tr>
 <tr><td>Dos procesos sobre la misma base de datos</td><td>Bloqueo con caducidad de 3 s; el segundo espera hasta 10 s y falla.</td><td><span class="tag impl">implementado</span></td></tr>
 <tr><td>Reacción nueva sobre sesiones existentes</td><td>Empieza desde ahora, no desde el historial.</td><td><span class="tag impl">implementado</span></td></tr>

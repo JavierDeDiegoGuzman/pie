@@ -3,7 +3,8 @@
 A plugin is a folder in the plugins folder (`<home>/plugins/<id>/`) with an
 `index.ts` whose default export is `Plugin.define({ id, setup })`. The id must
 equal the folder name. `index.ts` imports only `"effect"`, `"@pie/sdk"` and
-Node built-ins. Edit the files, then call the `restart` tool to apply them.
+Node built-ins. Edit the files: Pie applies them before your next step (or tells
+you why it could not).
 
 ## What `setup` can do (`ctx`)
 

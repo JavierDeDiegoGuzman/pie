@@ -32,6 +32,7 @@ Eventos del núcleo:
 | `abort/requested` | Abort durable |
 | `run/ended` | `completed`, `failed` o `aborted` (sin límite de turnos: se para con abort) |
 | `model/selected` | Cambio de modelo |
+| `notice` | Algo que Pie le dice al modelo antes de un paso (cambios de plugins aplicados o rechazados); lo ve como mensaje |
 
 Comandos que devuelve `decide`: `CallModel`, `RunTool`, `Deliver`, `EndRun` y
 `WakeAt` (no hay nada que hacer hasta una hora: el runtime programa un
@@ -87,14 +88,18 @@ siembra desde las plantillas del SDK (`packages/sdk/plugins/`).
 
 Como en pi, el prompt le dice al agente dónde están sus plugins, el SDK (solo
 lectura), las plantillas y la documentación. El agente los lee y edita con sus
-herramientas normales (`read`, `edit`, `write`) y aplica los cambios con la tool
-`restart`:
+herramientas normales (`read`, `edit`, `write`). No hay tool para aplicarlos ni
+hay que reiniciar: como en OpenCode o el DeepSeek Harness, Pie aplica los
+cambios solo, en un momento limpio (antes del siguiente paso de cualquier
+sesión, nunca a mitad de una tool):
 
 ```
-restart(reason) → valida los plugins cambiados en una composición desechable
-                  (si uno no carga: no se aplica nada y devuelve los errores)
-               → plugins/snapshot: el contenido completo de la carpeta
-               → aplica: hot (en este proceso) o restart (punto seguro → sale con 75 → el supervisor relanza)
+antes de cada llamada al modelo: ¿cambió la carpeta?
+  → valida los plugins cambiados en una composición desechable
+  → si cargan: plugins/snapshot (la carpeta entera) y se aplican en este proceso
+  → si no: no se aplica nada
+  → en ambos casos, un evento `notice` en la sesión: el agente lo lee como un
+    mensaje de Pie (aplicado, o los errores) y lo ve el chat
 ```
 
 `plugins.json` fija el orden y los plugins desactivados. Un plugin del host
@@ -108,7 +113,7 @@ registran como una instantánea nueva, así que también se pueden deshacer):
 | Vía | Cómo | Depende de plugins |
 |---|---|---|
 | Automática | Tras arrancar bien un rato, o al completar un run, se añade `config/good`. Si el proceso se cae dos veces seguidas nada más arrancar, el supervisor restaura la última buena | No |
-| Agente | `pie explain` / `pie rollback` con bash, y luego `restart` | Sí (`coding-tools`) |
+| Agente | `pie explain` / `pie rollback` con bash; se aplica antes de su siguiente paso | No (solo bash) |
 | Interfaz web | Menú «Plugins y deshacer» y banner de módulo roto («Desactivar») | Sí (`web`) |
 | Terminal | `pie explain`, `pie rollback --to N` o `--last-good` (con `--home`) | No |
 | Modo seguro | `PIE_SAFE=1`: carga las plantillas del SDK en vez de la carpeta | No |
@@ -145,7 +150,7 @@ ejecuciones pendientes; un reloj mantiene su hora original tras un reinicio.
 - Proyecciones: se recalculan plegando la rama entera en cada lectura; para
   sesiones muy largas harán falta instantáneas.
 - Recargar en caliente deja en memoria las versiones antiguas de los módulos
-  (Node no descarga ESM); el modo `restart` no tiene ese problema.
+  (Node no descarga ESM); reiniciar Pie de vez en cuando la libera.
 - Los módulos de UI no se validan antes de instalarse (no hay navegador en el
   servidor): un error se ve en la página, que ofrece quitarlo o deshacer.
 - La interfaz web es para una persona en local: un módulo de UI tiene el mismo

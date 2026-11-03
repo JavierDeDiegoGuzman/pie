@@ -3,11 +3,9 @@
  * does the rest with bash; names, parameters and output limits follow pi so
  * models trained on pi-style harnesses feel at home.
  *
- *   read · write · edit · bash · restart
+ *   read · write · edit · bash
  *
- * restart applies the agent's edits to the plugins folder (see the self
- * plugin's guide); it lives here so it is always next to the tools that make
- * those edits. Paths are resolved against the session cwd.
+ * Paths are resolved against the session cwd.
  *
  * Durability: read/write are naturally idempotent. edit is made
  * idempotent: if an oldText is gone but its newText is already present, that
@@ -251,29 +249,7 @@ export const tools = [read, write, edit, bash]
 export default Plugin.define({
   id: "coding-tools",
   setup: (ctx) =>
-    Effect.gen(function*() {
-      const plugins = ctx.pie.plugins
-      const restart = defineTool({
-        name: "restart",
-        description:
-          "Apply your edits to the plugins folder: validates the changed plugins (nothing is applied if one fails, " +
-          "and you get the errors), records a snapshot that can be rolled back, then reloads Pie with them.",
-        parameters: Schema.Struct({ reason: Schema.String.annotate({ description: "What changed, for the history" }) }),
-        idempotent: true,
-        execute: ({ reason }) =>
-          plugins.restart(reason).pipe(
-            Effect.map(({ changed }) => ({
-              content: `${changed.length === 0 ? "No plugin changed since the last restart." : `Changed: ${changed.join(", ")}.`} ${
-                plugins.reload === "hot"
-                  ? "Applied: the changes are active from your next step."
-                  : "Pie restarts to apply them as soon as this step finishes; you continue right after."
-              }`
-            })),
-            Effect.catchTag("PluginRejected", (e) => Effect.succeed({ content: e.message, isError: true }))
-          )
-      })
-      yield* ctx.tools.transform((registry) => {
-        for (const tool of [...tools, restart]) registry.set(tool.name, tool)
-      })
+    ctx.tools.transform((registry) => {
+      for (const tool of tools) registry.set(tool.name, tool)
     })
 })

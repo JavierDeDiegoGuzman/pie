@@ -2,25 +2,22 @@ sequenceDiagram
   autonumber
   participant M as LLM
   participant F as .pie/plugins/
-  participant S as coding-tools (restart)
+  participant R as Runtime
   participant P as Plugins
   participant C as Log de configuración
   participant H as PluginHost
-  participant R as Runtime
   M->>F: read / edit / write (p. ej. web/shell.html)
-  M->>S: restart(reason)
-  S->>P: restart
+  Note over R: antes de la siguiente llamada al modelo
+  R->>P: sync(sesión)
+  P->>F: ¿cambió la carpeta?
   P->>P: importar + setup de los plugins cambiados en una composición desechable
   alt alguno falla
-    P-->>M: nada aplicado, estos errores
+    P-->>R: «NOT applied» + errores
   else todos cargan
     P->>C: plugins/snapshot {archivos, hash, motivo}
-    alt modo hot
-      P->>H: replace (Scope nuevo, cierra el viejo)
-      R->>M: siguiente paso con los plugins nuevos
-    else modo restart
-      P->>R: drenar hasta un punto seguro
-      R-->>R: liberar bloqueo, salir con 75
-      Note over R: el supervisor relanza, carga la carpeta y reanuda el run. Si cae dos veces seguidas, restaura la última instantánea buena
-    end
+    P->>H: replace (Scope nuevo, cierra el viejo)
+    P-->>R: «applied» + nº de instantánea
   end
+  R->>R: evento notice en la sesión
+  R->>M: llamada con el aviso como mensaje y las tools nuevas
+  Note over R: si Pie se cae dos veces al arrancar, el supervisor restaura la última instantánea buena

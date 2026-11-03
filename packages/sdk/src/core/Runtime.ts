@@ -74,6 +74,11 @@ export class Runtime extends Context.Service<Runtime, {
   readonly start: Effect.Effect<void>
   /** Releases the database lock now (before exiting for a restart). */
   readonly release: Effect.Effect<void>
+  /**
+   * Runs before every model call (the plugin manager applies edits to the plugins folder here). What it returns is
+   * logged in the session as a `notice` the model reads.
+   */
+  readonly beforeStep: (f: (sessionId: string) => Effect.Effect<string | undefined>) => Effect.Effect<void>
 }>()("pie/Runtime") {
   static readonly make = Effect.gen(function*() {
     const log = yield* EventLog
@@ -162,6 +167,7 @@ export class Runtime extends Context.Service<Runtime, {
     }
 
     // -- commands ----------------------------------------------------------------
+    let beforeStepHook: (sessionId: string) => Effect.Effect<string | undefined> = () => Effect.succeed(undefined)
     let draining = false
     const inFlight = new Map<string, Set<string>>()
     const timers = new Set<string>()
@@ -179,6 +185,10 @@ export class Runtime extends Context.Service<Runtime, {
             data: { callId, turn, text: "", reasoning: "", toolCalls: [], finishReason: "aborted", model: state.model, usage: {} }
           })
           return
+        }
+        const notice = yield* beforeStepHook(sessionId)
+        if (notice !== undefined) {
+          yield* append(sessionId, { id: `${callId}/notice/${attempt}`, type: "notice", data: { text: notice } })
         }
         const branch = yield* log.branch(sessionId)
         const tools = yield* registries.tools.get
@@ -557,6 +567,7 @@ export class Runtime extends Context.Service<Runtime, {
       })
 
     return Runtime.of({
+      beforeStep: (f) => Effect.sync(() => void (beforeStepHook = f)),
       prompt: (sessionId, text, options) =>
         lockOf(sessionId).withPermits(1)(Effect.gen(function*() {
           const state = yield* load(sessionId)
