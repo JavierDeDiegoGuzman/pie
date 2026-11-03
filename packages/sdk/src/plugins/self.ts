@@ -14,6 +14,7 @@
  * terminal with `pie rollback`, and automatic when a change stops Pie from
  * booting).
  */
+import { fileURLToPath } from "node:url"
 import { Effect, Schema } from "effect"
 import * as Plugin from "../core/Plugin.ts"
 import type { Plugins } from "../core/Plugins.ts"
@@ -60,7 +61,10 @@ export default Plugin.define({
 Events record facts, not values computed from the current state: tool calls of one step run in parallel,
 so derive ids, counters and totals in the projection instead of reading the state and emitting the result.
 
-Everything is modifiable, built-ins included: installing a plugin with a built-in's id replaces it. Prefer
+Everything is modifiable, built-ins included: installing a plugin with a built-in's id replaces it. Read any
+plugin's code with plugin_source (for example "web": its page shell holds the header). A replacement can reuse
+the built-in, e.g. the web plugin with another page: import { WebPlugin } from "@pie/sdk" and call
+WebPlugin.setup({ ...ctx, options: { ...ctx.options, shell: "<!doctype html>..." } }). Prefer
 plugin_try for experiments and plugin_keep once it works; plugin_rollback undoes any change.
 
 Also available: ctx.prompt.transform((parts) => parts.push({ key, text })) for fixed system prompt text;
@@ -119,6 +123,22 @@ export const make = (options: { readonly plugins: Plugins["Service"] }) => {
     execute: () => Effect.map(plugins.explain, (e) => ({ content: JSON.stringify(e, null, 2) }))
   })
 
+  const source = defineTool({
+    name: "plugin_source",
+    description: "Read the source files of a loaded plugin, built-ins included (e.g. \"web\" with its page shell, " +
+      "\"web-chat\", \"coding-tools\"). To change one, install a plugin with the same id: it replaces the built-in " +
+      "and stays undoable. Never look for or edit Pie's files on disk.",
+    parameters: Schema.Struct({ id: Schema.String }),
+    idempotent: true,
+    execute: ({ id }) =>
+      plugins.source(id).pipe(
+        Effect.map((files) => ({
+          content: Object.entries(files).map(([name, text]) => `=== ${name} ===\n${text}`).join("\n\n")
+        })),
+        Effect.catchTag("PluginRejected", rejected)
+      )
+  })
+
   const remove = defineTool({
     name: "plugin_remove",
     description: "Remove a plugin you installed or are trying, or disable a built-in one.",
@@ -164,10 +184,11 @@ export const make = (options: { readonly plugins: Plugins["Service"] }) => {
 
   return Plugin.define({
     id: "self",
+    sourceFiles: [fileURLToPath(import.meta.url)],
     setup: (ctx) =>
       Effect.gen(function*() {
         yield* ctx.tools.transform((tools) => {
-          for (const tool of [install, tryTool, keep, explain, remove, enable, restore, rollback]) tools.set(tool.name, tool)
+          for (const tool of [install, tryTool, keep, explain, source, remove, enable, restore, rollback]) tools.set(tool.name, tool)
         })
         yield* ctx.prompt.transform((parts) => void parts.push({ key: "self/guide", text: GUIDE }))
       })

@@ -83,6 +83,11 @@ export type PluginServices = Scope.Scope | FileSystem.FileSystem | Path.Path
 export interface Plugin {
   readonly id: string
   readonly setup: (context: PluginContext) => Effect.Effect<void, unknown, PluginServices>
+  /**
+   * Files of its source (absolute paths), so the agent can read a built-in with
+   * plugin_source and install its own version instead of editing Pie's files.
+   */
+  readonly sourceFiles?: ReadonlyArray<string> | undefined
 }
 
 export const define = (plugin: Plugin): Plugin => plugin

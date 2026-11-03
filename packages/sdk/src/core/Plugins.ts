@@ -85,6 +85,8 @@ export class Plugins extends Context.Service<Plugins, {
   /** Marks the current composition as good (target of automatic rollbacks). */
   readonly markGood: Effect.Effect<void>
   readonly explain: Effect.Effect<Explanation>
+  /** Source files of a plugin (installed, trial or built-in): name → content. */
+  readonly source: (id: string) => Effect.Effect<Readonly<Record<string, string>>, PluginRejected>
   readonly config: Effect.Effect<ConfigState>
   readonly reload: "hot" | "restart"
   /** Completes when a restart was requested and work in flight has drained. */
@@ -116,13 +118,20 @@ export class Plugins extends Context.Service<Plugins, {
 
       /** Runs setup in a fresh, throwaway composition: catches errors without touching the live one. */
       const validate = (plugin: Plugin) =>
-        PluginHost.use((scratch) => scratch.load(plugin, { trusted: false })).pipe(
+        PluginHost.use((scratch) =>
+          Effect.gen(function*() {
+            const api = yield* host.getApi
+            if (api) yield* scratch.setApi(api)
+            yield* scratch.load(plugin, { trusted: false, options: builtinOptions(plugin.id) })
+          })
+        ).pipe(
           Effect.provide(Layer.fresh(Core.layer)),
           Effect.scoped,
           Effect.provideContext(services),
           Effect.mapError((e) => new PluginRejected({ message: e.message }))
         )
 
+      const builtinOptions = (id: string) => options.builtins.find((b) => b.plugin.id === id)?.options
       const builtinOrder = new Map(options.builtins.map((b, i) => [b.plugin.id, (i + 1) * 1000]))
       const isLoaded = (id: string) => Effect.map(host.list, (list) => list.some((p) => p.id === id))
 
@@ -140,6 +149,8 @@ export class Plugins extends Context.Service<Plugins, {
           const result = yield* importSource(entry.source).pipe(
             Effect.flatMap(({ plugin }) =>
               host.replace(plugin, {
+                // A replacement of a built-in keeps the built-in's options (port, token, ...).
+                options: builtinOptions(id),
                 order: builtinOrder.get(id) ?? 1_000_000 + entry.seq,
                 source: `config:${entry.hash}`,
                 trusted: false
@@ -206,7 +217,12 @@ export class Plugins extends Context.Service<Plugins, {
             const { hash, plugin } = yield* importSource(source)
             yield* guard(plugin.id)
             yield* validate(plugin)
-            yield* host.replace(plugin, { order: builtinOrder.get(plugin.id) ?? 2_000_000, source: `trial:${hash}`, trusted: false }).pipe(
+            yield* host.replace(plugin, {
+              options: builtinOptions(plugin.id),
+              order: builtinOrder.get(plugin.id) ?? 2_000_000,
+              source: `trial:${hash}`,
+              trusted: false
+            }).pipe(
               Effect.mapError((e) => new PluginRejected({ message: e.message }))
             )
             trial.set(plugin.id, { hash, source })
@@ -278,6 +294,19 @@ export class Plugins extends Context.Service<Plugins, {
             history: history.map(describe)
           }
         }),
+        source: (id) =>
+          Effect.gen(function*() {
+            const tried = trial.get(id)
+            if (tried) return { "index.ts": tried.source }
+            const installed = (yield* config.state).installed.get(id)
+            if (installed && !options.safe) return { "index.ts": installed.source }
+            const builtin = options.builtins.find((b) => b.plugin.id === id)
+            const files = builtin?.plugin.sourceFiles
+            if (!files || files.length === 0) return yield* new PluginRejected({ message: `no source available for "${id}"` })
+            return yield* Effect.promise(async () =>
+              Object.fromEntries(await Promise.all(files.map(async (file) => [path.basename(file), await fs.readFile(file, "utf8")] as const)))
+            )
+          }),
         config: config.state,
         reload: options.reload,
         restartRequested: Deferred.await(restart)

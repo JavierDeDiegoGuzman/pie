@@ -11,6 +11,19 @@ const get = (p: string) => Effect.promise(() => fetch(base + p, { headers }).the
 const post = (p: string, body: unknown = {}) =>
   Effect.promise(() => fetch(base + p, { method: "POST", headers, body: JSON.stringify(body) }).then((r) => r.json() as Promise<any>))
 
+/** Replacing the web plugin closes the old server's keep-alive connections: retry like a browser would. */
+const page = () =>
+  Effect.promise(async () => {
+    for (let i = 0; ; i++) {
+      try {
+        return await fetch(base + "/", { headers }).then((r) => r.text())
+      } catch (error) {
+        if (i >= 3) throw error
+        await new Promise((r) => setTimeout(r, 50))
+      }
+    }
+  })
+
 const sdk = path.join(import.meta.dirname, "..", "src", "index.ts")
 const uiPlugin = `
 import { Plugin } from ${JSON.stringify(sdk)}
@@ -62,9 +75,22 @@ describe("web plugin", () => {
       expect(received.join("")).toContain('"status-badge"')
       expect((yield* get("/api/state")).ui.map((m: any) => m.id)).toContain("status-badge")
       yield* post("/api/plugins/undo")
+      yield* Effect.sleep("100 millis")
       expect((yield* get("/api/state")).ui.map((m: any) => m.id)).not.toContain("status-badge")
 
+      // The agent reads the built-in web plugin and replaces it with its own page, keeping port and token.
+      const files = yield* Effect.orDie(plugins.source("web"))
+      expect(Object.keys(files)).toEqual(expect.arrayContaining(["web.ts", "shell.html", "ui-sdk.js"]))
       controller.abort()
+      yield* Effect.orDie(plugins.install(`
+import { Plugin, WebPlugin } from ${JSON.stringify(sdk)}
+export default Plugin.define({ id: "web", setup: (ctx) => WebPlugin.setup({ ...ctx, options: { ...ctx.options, shell: "<p>mine</p>" } }) })
+`))
+      expect(yield* page()).toBe("<p>mine</p>")
+      yield* page() // settle the connection pool on the new server
+      yield* post("/api/plugins/undo") // answered before it is applied, so never retried
+      yield* Effect.sleep("200 millis")
+      expect(yield* page()).toContain("importmap")
     }).pipe(
       Effect.provide(Pie.layer({
         storage: Storage.memory,

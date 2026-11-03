@@ -70,6 +70,7 @@ export class PluginHost extends Context.Service<PluginHost, {
   readonly list: Effect.Effect<ReadonlyArray<PluginInfo>>
   /** Gives plugins access to Pie (ctx.pie). Set by Pie.layer before plugins load. */
   readonly setApi: (api: PieApi) => Effect.Effect<void>
+  readonly getApi: Effect.Effect<PieApi | undefined>
 }>()("pie/PluginHost") {
   static readonly make = Effect.gen(function*() {
     const composition = yield* Composition
@@ -194,6 +195,6 @@ export class PluginHost extends Context.Service<PluginHost, {
       })
     )
 
-    return PluginHost.of({ load, replace, unload, list, setApi: (value) => Effect.sync(() => void (api = value)) })
+    return PluginHost.of({ load, replace, unload, list, setApi: (value) => Effect.sync(() => void (api = value)), getApi: Effect.sync(() => api) })
   })
 }

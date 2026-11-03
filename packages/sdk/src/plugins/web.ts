@@ -10,9 +10,16 @@
  *   /api/*       sessions, events, prompts, projections, plugins; /api/live is SSE
  *
  * The chat itself is a UI module of another plugin (web-chat), so it can be
- * replaced too.
+ * replaced too. Options: port, host, token, cwd, model, and `shell` (the HTML of
+ * the page, to change the layout without rewriting the server): a plugin with
+ * id "web" can reuse this one with its own shell,
+ *
+ *   import { Plugin, WebPlugin } from "@pie/sdk"
+ *   export default Plugin.define({ id: "web",
+ *     setup: (ctx) => WebPlugin.setup({ ...ctx, options: { ...ctx.options, shell: MY_SHELL_HTML } }) })
  */
 import { randomUUID } from "node:crypto"
+import { fileURLToPath } from "node:url"
 import * as fs from "node:fs"
 import * as http from "node:http"
 import { Effect, Schema, Stream } from "effect"
@@ -79,6 +86,7 @@ const cookie = (req: http.IncomingMessage, name: string) =>
 
 export default Plugin.define({
   id: "web",
+  sourceFiles: [fileURLToPath(import.meta.url), Assets.shell, Assets.uiSdk],
   setup: (ctx) =>
     Effect.gen(function*() {
       const pie = ctx.pie
@@ -120,7 +128,7 @@ export default Plugin.define({
             return res.end("Open the URL with ?token=… printed by Pie.")
           }
           res.writeHead(200, { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" })
-          return res.end(fs.readFileSync(Assets.shell))
+          return res.end(typeof ctx.options.shell === "string" ? ctx.options.shell : fs.readFileSync(Assets.shell))
         }
         if (!authorized(req)) return json(res, 401, { error: "unauthorized" })
 
@@ -188,18 +196,18 @@ export default Plugin.define({
           const { head } = await run(pie.plugins.explain)
           const history = (await run(pie.plugins.explain)).history.filter((h) => h.seq < head && h.type !== "config/good")
           const toSeq = history.length > 0 ? history[history.length - 1]!.seq : 0
-          await run(Effect.result(pie.plugins.rollback(toSeq, "web: undo the last change")))
-          return json(res, 200, { toSeq })
+          json(res, 200, { toSeq })
+          return applyAfterResponse(pie.plugins.rollback(toSeq, "web: undo the last change"))
         }
         if (url.pathname === "/api/plugins/rollback" && method === "POST") {
           const body = await readBody(req)
-          const result = await run(Effect.result(pie.plugins.rollback(Number(body.toSeq), String(body.reason ?? "web: rollback"))))
-          return result._tag === "Success" ? json(res, 200, { ok: true }) : json(res, 409, { error: result.failure.message })
+          json(res, 200, { ok: true })
+          return applyAfterResponse(pie.plugins.rollback(Number(body.toSeq), String(body.reason ?? "web: rollback")))
         }
         if (url.pathname === "/api/plugins/remove" && method === "POST") {
           const body = await readBody(req)
-          const result = await run(Effect.result(pie.plugins.remove(String(body.id))))
-          return result._tag === "Success" ? json(res, 200, { ok: true }) : json(res, 409, { error: result.failure.message })
+          json(res, 200, { ok: true })
+          return applyAfterResponse(pie.plugins.remove(String(body.id)))
         }
         if (url.pathname === "/api/client-errors" && method === "POST") {
           const body = await readBody(req)
@@ -213,6 +221,15 @@ export default Plugin.define({
 
       const clientErrors: Array<{ owner: string; message: string; at: number }> = []
 
+      /**
+       * Configuration changes may replace this very plugin (and close this server), so answer first and apply
+       * right after: otherwise the client sees a dropped connection, retries, and a second "undo" undoes the first.
+       */
+      const applyAfterResponse = (change: Effect.Effect<void, { readonly message: string }>) =>
+        void setImmediate(() =>
+          run(change.pipe(Effect.catch((e) => Effect.logWarning(`web: configuration change failed: ${e.message}`))))
+        )
+
       yield* Effect.acquireRelease(
         Effect.callback<http.Server, Error>((resume) => {
           const server = http.createServer((req, res) => {
@@ -222,7 +239,8 @@ export default Plugin.define({
             })
           })
           server.once("error", (error) => resume(Effect.fail(error)))
-          server.listen(port, hostname, () => resume(Effect.succeed(server)))
+          // reusePort: a new version of this plugin can start before the old one stops (atomic replace).
+          server.listen({ port, host: hostname, reusePort: true }, () => resume(Effect.succeed(server)))
         }),
         (server) =>
           Effect.callback<void>((resume) => {

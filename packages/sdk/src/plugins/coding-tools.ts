@@ -16,10 +16,13 @@ import { spawn } from "node:child_process"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { Effect, Schema } from "effect"
+import { fileURLToPath } from "node:url"
 import * as Plugin from "../core/Plugin.ts"
 import { defineTool, type ToolOutput } from "../core/Registry.ts"
 
 export const MAX_LINES = 2000
+/** Seconds; a command that never ends (e.g. find /) would otherwise block the run forever. */
+export const DEFAULT_BASH_TIMEOUT = 300
 export const MAX_BYTES = 50 * 1024
 const GREP_MAX_LINE = 500
 
@@ -218,14 +221,14 @@ const bash = defineTool({
   name: "bash",
   description:
     `Execute a bash command in the current working directory. Returns stdout and stderr. ` +
-    `Output is truncated to last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB (whichever is hit first). Optionally provide a timeout in seconds.`,
+    `Output is truncated to last ${MAX_LINES} lines or ${MAX_BYTES / 1024}KB (whichever is hit first). Timeout: ${DEFAULT_BASH_TIMEOUT}s unless given.`,
   parameters: Schema.Struct({
     command: Schema.String.annotate({ description: "Bash command to execute" }),
-    timeout: Schema.optional(Schema.Number).annotate({ description: "Timeout in seconds (optional, no default timeout)" })
+    timeout: Schema.optional(Schema.Number).annotate({ description: "Timeout in seconds (default 300)" })
   }),
   idempotent: false,
   execute: ({ command, timeout }, { cwd }) =>
-    run("bash", ["-c", command], cwd, timeout).pipe(
+    run("bash", ["-c", command], cwd, timeout ?? DEFAULT_BASH_TIMEOUT).pipe(
       Effect.map(({ code, output, timedOut }) => {
         const { text, truncated } = truncateTail(output.replace(/\n$/, ""))
         const notes = [
@@ -341,6 +344,7 @@ export const tools = [read, write, edit, bash, grep, find, ls]
 
 export default Plugin.define({
   id: "coding-tools",
+  sourceFiles: [fileURLToPath(import.meta.url)],
   setup: (ctx) =>
     ctx.tools.transform((registry) => {
       const disabled = Array.isArray(ctx.options.disable) ? ctx.options.disable : []
