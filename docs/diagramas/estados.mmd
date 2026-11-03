@@ -7,7 +7,6 @@ stateDiagram-v2
   Ejecutando --> Libre: run/ended completed
   Ejecutando --> Libre: abort/requested → run/ended aborted
   Ejecutando --> Libre: 3 fallos → run/ended failed
-  Ejecutando --> Libre: 64 turnos → run/ended turn_limit
   Ejecutando --> Caido: el proceso muere
   Caido --> Ejecutando: reinicio → plegar log → decide
   Ejecutando --> Drenando: cambio de plugin (modo restart)

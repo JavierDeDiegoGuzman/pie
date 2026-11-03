@@ -30,7 +30,7 @@ Eventos del núcleo:
 | `model/responded` / `model/failed` | Respuesta completa, o fallo con hora de reintento |
 | `tool/started` / `tool/finished` | Una tool empezó / terminó |
 | `abort/requested` | Abort durable |
-| `run/ended` | `completed`, `failed`, `aborted` o `turn_limit` |
+| `run/ended` | `completed`, `failed` o `aborted` (sin límite de turnos: se para con abort) |
 | `model/selected` | Cambio de modelo |
 
 Comandos que devuelve `decide`: `CallModel`, `RunTool`, `Deliver`, `EndRun` y

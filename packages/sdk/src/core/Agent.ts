@@ -15,7 +15,6 @@
 import type { Prompt } from "effect/ai"
 import type { LogEvent } from "./Log.ts"
 
-export const MAX_TURNS = 64
 export const MAX_MODEL_ATTEMPTS = 3
 
 // ---------------------------------------------------------------------------
@@ -33,7 +32,7 @@ export interface Usage {
   readonly outputTokens?: number | undefined
 }
 
-export type RunStatus = "completed" | "failed" | "aborted" | "turn_limit"
+export type RunStatus = "completed" | "failed" | "aborted"
 
 export interface CoreEvents {
   /** A run begins; the prompt follows as a `user` event. */
@@ -253,7 +252,6 @@ export const decide = (state: AgentState, now: number): ReadonlyArray<Command> =
   const due = state.queued.filter((q) => q.kind === (run.expectsMore ? "steer" : "followUp"))
   if (due.length > 0) return [{ _tag: "Deliver", key: `deliver/${due.map((q) => q.inputId).join(",")}`, inputs: due }]
   if (!run.expectsMore) return end("completed")
-  if (run.turn >= MAX_TURNS) return end("turn_limit")
   const callId = `${run.runId}/call/${run.turn}`
   return [{ _tag: "CallModel", key: `model/${callId}`, runId: run.runId, callId, turn: run.turn, attempt: 1 }]
 }

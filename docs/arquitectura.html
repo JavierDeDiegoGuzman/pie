@@ -98,7 +98,7 @@
   <span class="k">const</span> session = <span class="k">yield</span>* pie.create({ cwd: <span class="s">"/repo"</span>, model: <span class="s">"opencode-go/deepseek-v4.1-flash"</span> })
   <span class="k">yield</span>* session.live.pipe(Stream.runForEach(onEvent), Effect.forkScoped)   <span class="c">// eventos + deltas</span>
   <span class="k">yield</span>* session.prompt(<span class="s">"arregla el test"</span>)
-  <span class="k">const</span> outcome = <span class="k">yield</span>* session.awaitIdle            <span class="c">// run/ended: completed | failed | aborted | turn_limit</span>
+  <span class="k">const</span> outcome = <span class="k">yield</span>* session.awaitIdle            <span class="c">// run/ended: completed | failed | aborted</span>
   <span class="k">const</span> events = <span class="k">yield</span>* session.events              <span class="c">// la rama actual: toda la verdad</span>
   <span class="k">yield</span>* session.navigate(events[1].id)               <span class="c">// bifurcar desde ahí</span>
 })
