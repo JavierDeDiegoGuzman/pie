@@ -42,8 +42,11 @@ const toParts = (reply: Reply): Array<Response.StreamPartEncoded> => {
   ]
 }
 
+/** Reply "hang": the stream sends nothing and never ends (a stalled provider). */
+export const HANG = { hang: true } as const
+
 export const fakeModelPlugin = (
-  script: (messages: ReadonlyArray<Prompt.Message>, tools: ReadonlyArray<string>) => Reply,
+  script: (messages: ReadonlyArray<Prompt.Message>, tools: ReadonlyArray<string>) => Reply | typeof HANG,
   onCall?: () => void
 ) =>
   Plugin.define({
@@ -62,7 +65,8 @@ export const fakeModelPlugin = (
                 streamText: (options) =>
                   Stream.suspend(() => {
                     onCall?.()
-                    return Stream.fromIterable(toParts(script(options.prompt.content, options.tools.map((t) => t.name))))
+                    const reply = script(options.prompt.content, options.tools.map((t) => t.name))
+                    return "hang" in reply ? Stream.never : Stream.fromIterable(toParts(reply))
                   })
               })
             )

@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Deferred, Effect, Schema } from "effect"
 import * as path from "node:path"
 import { defineTool, type LogEvent, Pie, Plugin, Storage, TodoPlugin } from "../src/index.ts"
-import { FAKE_MODEL, fakeModelPlugin, last, lastUserText, type Reply, toolResults } from "./support/fake-model.ts"
+import { FAKE_MODEL, fakeModelPlugin, HANG, last, lastUserText, type Reply, toolResults } from "./support/fake-model.ts"
 
 const addTool = Plugin.define({
   id: "math",
@@ -264,6 +264,31 @@ describe("agent loop over the event log", () => {
           return { text: "hi" }
         })
       ]
+    )
+  }, 15_000)
+
+  it.live("a model that stops responding times out and the call is retried", () => {
+    let calls = 0
+    return Effect.acquireUseRelease(
+      Effect.sync(() => {
+        process.env.PIE_MODEL_IDLE_TIMEOUT = "300"
+      }),
+      () =>
+        run(
+          Effect.gen(function*() {
+            const pie = yield* Pie.Pie
+            const session = yield* pie.create({ cwd: "/repo", model: FAKE_MODEL })
+            yield* session.prompt("hello")
+            expect(yield* session.awaitIdle.pipe(Effect.timeout("10 seconds"))).toMatchObject({ status: "completed" })
+            const [failure] = data<{ message: string }>(yield* session.events, "model/failed")
+            expect(failure?.message).toContain("no response from the model")
+          }),
+          [fakeModelPlugin(() => (++calls === 1 ? HANG : { text: "hi" }))]
+        ),
+      () =>
+        Effect.sync(() => {
+          delete process.env.PIE_MODEL_IDLE_TIMEOUT
+        })
     )
   }, 15_000)
 

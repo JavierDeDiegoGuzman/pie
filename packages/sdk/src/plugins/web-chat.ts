@@ -29,6 +29,8 @@ export default Plugin.define({
         .fork { font-size:11px; color:var(--muted); cursor:pointer; margin-left:6px }
       `)
 
+      const touch = (globalThis as any).matchMedia("(pointer: coarse)").matches
+
       const Sessions = () => {
         const current = useSession()
         const tick = useTick(null)
@@ -93,7 +95,10 @@ export default Plugin.define({
           <div class="chat-input">
             <textarea value=${text} placeholder=${running ? "Trabajando… lo que escribas se entrega como steer" : "Escribe una tarea"}
               onInput=${(e: any) => setText(e.target.value)}
-              onKeyDown=${(e: any) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send() } }} />
+              onKeyDown=${(e: any) => {
+                // Phones: Enter is a new line (send with the button). Desktop: Enter sends, Shift+Enter is a new line.
+                if (e.key === "Enter" && !e.shiftKey && !touch) { e.preventDefault(); send() }
+              }} />
             ${running ? html`<button onClick=${() => api.post(`/api/sessions/${session}/abort`)}>Abortar</button>` : ""}
             <button onClick=${send}>Enviar</button>
           </div>

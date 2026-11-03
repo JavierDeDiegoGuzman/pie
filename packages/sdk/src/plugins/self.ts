@@ -19,7 +19,11 @@ import * as Plugin from "../core/Plugin.ts"
 import type { Plugins } from "../core/Plugins.ts"
 import { defineTool } from "../core/Registry.ts"
 
-export const GUIDE = `You can extend yourself with plugins. A plugin is a TypeScript module whose default export is
+export const GUIDE = `Pie's own source code and installation are not your workspace: never edit them to change yourself.
+Change yourself (tools, prompts, the web UI, any behaviour) only through plugins, as below: every plugin change is
+recorded and can be undone, while editing Pie's files would bypass that.
+
+You can extend yourself with plugins. A plugin is a TypeScript module whose default export is
 Plugin.define({ id, setup }). setup is an Effect that registers things; everything it registers is removed
 when the plugin is replaced or removed. Install plugins with plugin_install; their tools are available from
 your next step. Only "effect", "@pie/sdk" and Node built-ins (node:fs, node:child_process, ...) can be imported.

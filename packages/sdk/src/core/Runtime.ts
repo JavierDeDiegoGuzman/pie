@@ -36,6 +36,9 @@ import {
 export class SessionBusy extends Data.TaggedError("SessionBusy")<{ readonly sessionId: string; readonly runId: string }> {}
 export class StorageLocked extends Data.TaggedError("StorageLocked")<{ readonly owner: string }> {}
 
+/** Give up on a model call when nothing (text, reasoning, tool calls) arrives for this long. */
+export const modelIdleTimeout = () => Number(process.env.PIE_MODEL_IDLE_TIMEOUT ?? 120_000)
+
 const EMPTY_OBJECT = { type: "object", properties: {}, required: [], additionalProperties: false } as const
 
 const hasNoFields = (schema: unknown) =>
@@ -236,8 +239,20 @@ export class Runtime extends Context.Service<Runtime, {
           disableToolCallResolution: true,
           toolCallValidation: "deferred"
         }) as Stream.Stream<Response.StreamPart<Record<string, Tool.Any>>, AiError.AiError, LanguageModel.LanguageModel>
+        // A stream that stops sending anything would wait forever: give up after an idle period.
+        let lastActivity = Date.now()
+        const watchdog = Effect.gen(function*() {
+          for (;;) {
+            yield* Effect.sleep(Math.min(2000, modelIdleTimeout() / 4))
+            const limit = modelIdleTimeout()
+            if (Date.now() - lastActivity > limit) {
+              return yield* Effect.fail(new Error(`no response from the model for ${Math.round(limit / 1000)}s`))
+            }
+          }
+        })
         const outcome = yield* stream.pipe(
           Stream.runForEach((part) => {
+            lastActivity = Date.now()
             switch (part.type) {
               case "text-delta":
                 text += part.delta
@@ -258,6 +273,7 @@ export class Runtime extends Context.Service<Runtime, {
           }),
           Effect.provide(model.layer({ sessionId })),
           Effect.as("done" as const),
+          Effect.raceFirst(watchdog),
           Effect.raceFirst(Effect.as(signals.await(runId), "aborted" as const)),
           Effect.catchCause((cause) => Effect.succeed({ error: errorMessage(cause) }))
         )
