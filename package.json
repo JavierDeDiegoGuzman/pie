@@ -1,0 +1,17 @@
+{
+  "name": "pie",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.1.2",
+  "engines": { "node": ">=22.16.0" },
+  "scripts": {
+    "check": "tsc -b --pretty false",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.1.2",
+    "@types/node": "^22.20.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

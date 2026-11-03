@@ -1,0 +1,21 @@
+sequenceDiagram
+  autonumber
+  participant M as LLM (turno n)
+  participant W as AgentRun
+  participant F as .pie/plugins
+  participant P as PluginLoader
+  participant H as PluginHost
+  participant R as Registries
+  M->>W: tool write("word-count.ts", código)
+  W->>F: escribe el archivo
+  F-->>P: watch: cambio
+  P->>P: import(archivo?v=hash)
+  alt importa y setup OK
+    P->>H: replace(plugin) en un batch
+    H->>R: nuevas transformaciones + cierra el Scope viejo
+    R-->>R: reconstrucción única (versión +1)
+  else error de sintaxis o setup
+    P-->>P: status.error, la versión anterior sigue cargada
+  end
+  W->>R: Actividad llm/n+1 lee el registro
+  R-->>M: la tool nueva ya aparece en esta llamada

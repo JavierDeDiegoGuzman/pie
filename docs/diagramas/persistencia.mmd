@@ -1,0 +1,41 @@
+erDiagram
+  pie_sessions ||--o{ pie_entries : "árbol (parent_id)"
+  pie_sessions ||--o{ pie_inputs : "cola steer/followUp"
+  pie_sessions ||--o| cluster_messages : "active_run = runId"
+  cluster_messages ||--o| cluster_replies : "resultado memorizado"
+  pie_entries ||--o{ pie_tool_attempts : "marca de inicio"
+  pie_sessions ||--o{ pie_aborts : "abort durable"
+  pie_sessions {
+    text id PK
+    text cwd
+    text model "provider/model"
+    text leaf_id "cabeza de la rama"
+    text active_run "null si libre"
+  }
+  pie_entries {
+    text id PK "runId/turno/tipo"
+    text session_id
+    text parent_id
+    int seq
+    text kind "user|assistant|toolResult|runEnd"
+    json data
+  }
+  pie_inputs {
+    text id PK
+    text kind "steer|followUp"
+    text consumed_by "null = en cola"
+  }
+  pie_tool_attempts {
+    text key PK "runId/turno/toolCallId"
+  }
+  pie_aborts {
+    text run_id PK
+  }
+  cluster_messages {
+    text id PK "workflow o actividad"
+    json payload
+  }
+  cluster_replies {
+    text request_id
+    json exit
+  }

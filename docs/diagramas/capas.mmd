@@ -1,0 +1,35 @@
+flowchart TB
+  host["Tu código / futura UI / CLI"]
+  subgraph CORE["Núcleo fijo · @pie/sdk/core (el agente lo usa, no lo modifica)"]
+    api["Pie · Session<br/>prompt · steer · followUp · abort · awaitIdle · entries · events"]
+    run["AgentRun · Workflow<br/>llm → assistant → tools → results → steer → finish"]
+    reg["Registries (State)<br/>tools · models · prompt · hooks"]
+    host2["PluginHost<br/>load · replace atómico · unload"]
+    loader["PluginLoader<br/>sincroniza y vigila directorios"]
+    store["SessionStore<br/>árbol de entradas · colas · marcas · aborts"]
+    ev["Events (PubSub)"]
+  end
+  subgraph PLUGINS["Plugins · desactivables, reemplazables, escribibles por el agente"]
+    p1["opencode-go<br/>modelos"]
+    p2["coding-tools<br/>read · write · edit · bash · grep · find · ls"]
+    p3["system-prompt · context-files<br/>(AGENTS.md)"]
+    p5["self<br/>plugin_write · plugin_list · plugin_remove"]
+    p4["skills · compactación · aprobaciones<br/>(pendiente)"]
+    dir[".pie/plugins/*.ts<br/>escritos por el agente"]
+  end
+  subgraph EFFECT["Effect 4.1.2"]
+    wf["effect/workflow + effect/cluster<br/>Workflow · Activity · SingleRunner"]
+    ai["effect/ai<br/>LanguageModel · Tool.dynamic"]
+    sql["effect/sql + sqlite / pg / mysql"]
+  end
+  host --> api --> run
+  api -. eventos .-> ev
+  run --> reg & store & ev
+  host2 --> reg
+  loader --> host2
+  dir --> loader
+  p1 & p2 & p3 & p4 & p5 --> host2
+  p5 -. escribe .-> dir
+  run --> wf --> sql
+  store --> sql
+  run --> ai

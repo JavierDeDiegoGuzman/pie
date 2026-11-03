@@ -1,0 +1,10 @@
+flowchart LR
+  init["initial()<br/>valor vacío"] --> t1["models-dev<br/>añade proveedores"] --> t2["local-model<br/>añade 2 modelos"] --> t3["policy<br/>desactiva uno"] --> t4["limits<br/>divide límites ÷2"] --> out["valor publicado<br/>(versión n)"]
+  subgraph ORDEN["orden = (posición del plugin, secuencia de registro)"]
+    t1
+    t2
+    t3
+    t4
+  end
+  close["el plugin se descarga<br/>(se cierra su Scope)"] -. quita su transformación .-> t3
+  reload["reload() o cambio de plugin"] -. reconstruye desde cero .-> init

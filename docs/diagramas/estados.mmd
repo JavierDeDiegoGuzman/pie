@@ -1,0 +1,14 @@
+stateDiagram-v2
+  [*] --> Libre
+  Libre --> Ejecutando: prompt() / steer() / followUp()
+  Ejecutando --> Ejecutando: steer() / followUp() → cola
+  Ejecutando --> Reintentando: error del proveedor
+  Reintentando --> Ejecutando: backoff (2 reintentos)
+  Ejecutando --> Libre: fin sin followUps → runEnd completed
+  Ejecutando --> Libre: abort() → runEnd aborted
+  Ejecutando --> Libre: error agotado → runEnd failed
+  Ejecutando --> Libre: 64 turnos → runEnd turn_limit
+  Ejecutando --> Caido: el proceso muere
+  Caido --> Ejecutando: reinicio → se rejuega desde la última actividad completa
+  Ejecutando --> EsperandoHumano: hook pide aprobación (pendiente)
+  EsperandoHumano --> Ejecutando: respuesta con token (pendiente)
