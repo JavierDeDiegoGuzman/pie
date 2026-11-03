@@ -38,7 +38,7 @@
 <div class="note"><code>model/requested</code> guarda el prompt del sistema y las tools ofrecidas: lo que ve el modelo está en el log. Los ids de evento son deterministas (run, turno, llamada), así que repetir un paso nunca duplica nada.</div></div>
 
 <h2>4 · Automodificación</h2>
-<p class="lead">Cada cambio es un evento del log de configuración con el código fuente completo. Volver a cualquier versión es <code>plugin_restore</code>. Los plugins del agente no pueden usar puntos de política.</p>
+<p class="lead">El SDK es fijo; cada plugin es una carpeta en <code>.pie/plugins/</code> que el agente edita con sus tools normales y aplica con <code>restart</code>. Cada restart guarda una instantánea completa de la carpeta; volver a cualquiera es <code>plugin_rollback</code> (o <code>pie rollback</code> desde la terminal, o el supervisor si Pie no arranca).</p>
 <div class="box"><img class="diagram" src="diagramas/automodificacion.svg" alt="Automodificación"></div>
 
 <h2>5 · Qué se persiste</h2>
@@ -47,7 +47,7 @@
 <tr><th>Tabla</th><th>Qué guarda</th></tr>
 <tr><td>pie_events</td><td>Toda la sesión, en árbol: eventos del núcleo y de plugins</td></tr>
 <tr><td>pie_sessions</td><td>cwd, modelo inicial y hoja de la rama actual</td></tr>
-<tr><td>pie_config</td><td>Log de configuración de plugins, con el código de cada versión</td></tr>
+<tr><td>pie_config</td><td>Instantáneas de la carpeta de plugins y marcas de configuración buena</td></tr>
 <tr><td>pie_cursors</td><td>Hasta dónde ha procesado cada reacción en cada sesión</td></tr>
 <tr><td>pie_workflow</td><td>Journal de los workflows de Effect: ejecuciones, actividades, deferreds, relojes, resultados</td></tr>
 <tr><td>pie_lock</td><td>Un runtime por base de datos</td></tr>
