@@ -255,7 +255,9 @@ export class Plugins extends Context.Service<Plugins, {
           if (refused?.hash !== hash) {
             const { changed, errors } = yield* check(files)
             if (errors.length === 0) {
-              const what = changed.length > 0 ? changed.join(", ") : "plugins.json"
+              const enabled = Folder.enabledPlugins(files)
+              const removed = [...loaded.keys()].filter((id) => !enabled.includes(id)).map((id) => `${id} removed`)
+              const what = [...changed, ...removed].join(", ") || "plugins.json"
               const seq = yield* snapshot(files, `applied before the next step: ${what} changed`)
               yield* apply(files)
               refused = undefined
