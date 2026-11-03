@@ -1,14 +1,13 @@
 /**
- * Live events. In-memory only: deltas are never persisted. Anything that
- * matters is also an entry in the SessionStore, so a late subscriber reads the
- * branch and then follows the live stream.
+ * Live events. Every event appended to the log is published as `event`;
+ * streaming deltas are published too but never persisted. A late subscriber
+ * reads the branch from the log and then follows this stream.
  */
 import { Context, Effect, PubSub, Stream } from "effect"
-import type { Entry, RunOutcome, ToolResultData } from "./Session.ts"
+import type { LogEvent } from "./Log.ts"
 
 export type PieEvent =
-  | { readonly type: "agent_start"; readonly sessionId: string; readonly runId: string }
-  | { readonly type: "turn_start"; readonly sessionId: string; readonly runId: string; readonly turn: number }
+  | { readonly type: "event"; readonly sessionId: string; readonly event: LogEvent }
   | { readonly type: "text_delta"; readonly sessionId: string; readonly runId: string; readonly turn: number; readonly delta: string }
   | {
     readonly type: "reasoning_delta"
@@ -17,17 +16,6 @@ export type PieEvent =
     readonly turn: number
     readonly delta: string
   }
-  | {
-    readonly type: "tool_start"
-    readonly sessionId: string
-    readonly runId: string
-    readonly toolCallId: string
-    readonly tool: string
-    readonly params: unknown
-  }
-  | { readonly type: "tool_end"; readonly sessionId: string; readonly runId: string; readonly result: ToolResultData }
-  | { readonly type: "entry"; readonly sessionId: string; readonly entry: Entry }
-  | { readonly type: "agent_end"; readonly sessionId: string; readonly runId: string; readonly outcome: RunOutcome }
 
 export class Events extends Context.Service<Events, {
   readonly publish: (event: PieEvent) => Effect.Effect<void>

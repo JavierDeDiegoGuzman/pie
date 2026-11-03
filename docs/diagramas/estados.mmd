@@ -1,14 +1,14 @@
 stateDiagram-v2
   [*] --> Libre
   Libre --> Ejecutando: prompt() / steer() / followUp()
-  Ejecutando --> Ejecutando: steer() / followUp() → cola
-  Ejecutando --> Reintentando: error del proveedor
-  Reintentando --> Ejecutando: backoff (2 reintentos)
-  Ejecutando --> Libre: fin sin followUps → runEnd completed
-  Ejecutando --> Libre: abort() → runEnd aborted
-  Ejecutando --> Libre: error agotado → runEnd failed
-  Ejecutando --> Libre: 64 turnos → runEnd turn_limit
+  Ejecutando --> Ejecutando: steer() / followUp() → input/queued
+  Ejecutando --> Esperando: model/failed → WakeAt(retryAt)
+  Esperando --> Ejecutando: despertador
+  Ejecutando --> Libre: run/ended completed
+  Ejecutando --> Libre: abort/requested → run/ended aborted
+  Ejecutando --> Libre: 3 fallos → run/ended failed
+  Ejecutando --> Libre: 64 turnos → run/ended turn_limit
   Ejecutando --> Caido: el proceso muere
-  Caido --> Ejecutando: reinicio → se rejuega desde la última actividad completa
-  Ejecutando --> EsperandoHumano: hook pide aprobación (pendiente)
-  EsperandoHumano --> Ejecutando: respuesta con token (pendiente)
+  Caido --> Ejecutando: reinicio → plegar log → decide
+  Ejecutando --> Drenando: cambio de plugin (modo restart)
+  Drenando --> Caido: sale con 75 en un punto seguro

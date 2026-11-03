@@ -1,28 +1,19 @@
 /**
- * Persistence backends. Each provides the SQL client used by the SessionStore
- * and the WorkflowEngine, and they always share one database: the guarantees
- * of the loop depend on session writes and engine state living together.
+ * Persistence backends. Everything (session logs, configuration log, plugin
+ * cursors, workflow journal, process lock) lives in one SQL database.
  *
- * - sqlite(file): durable, single process per file (local / CLI).
+ * - sqlite(file): durable; one runtime per file (enforced by a lock).
  * - memory: nothing survives the process (tests, ephemeral agents).
  *
- * Postgres/MySQL use the same engine (`SqlMessageStorage` supports them) and
- * are a matter of swapping the SQL client layer; not wired yet.
+ * Postgres/MySQL: the SQL used is portable except `INSERT OR IGNORE`; adding a
+ * client layer and dialect switches is the remaining work.
  */
 import { SqliteClient } from "@effect/sql-sqlite-node"
 import { Layer } from "effect"
-import { ClusterWorkflowEngine, SingleRunner } from "effect/cluster"
-import { Digest } from "effect/crypto"
-import { WorkflowEngine } from "effect/workflow"
+import type { SqlClient } from "effect/sql"
 
-export const sqlite = (filename: string) =>
-  ClusterWorkflowEngine.layer.pipe(
-    Layer.provideMerge(SingleRunner.layer({ runnerStorage: "sql" })),
-    Layer.provide(Digest.layerWebCrypto),
-    Layer.provideMerge(SqliteClient.layer({ filename })),
-    Layer.orDie
-  )
+export type Storage = Layer.Layer<SqlClient.SqlClient>
 
-export const memory = Layer.merge(WorkflowEngine.layerMemory, SqliteClient.layer({ filename: ":memory:" })).pipe(
-  Layer.orDie
-)
+export const sqlite = (filename: string): Storage => Layer.orDie(SqliteClient.layer({ filename }))
+
+export const memory: Storage = Layer.orDie(SqliteClient.layer({ filename: ":memory:" }))

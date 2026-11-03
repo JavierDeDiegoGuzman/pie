@@ -37,14 +37,15 @@ describe.skipIf(process.env.PIE_LIVE !== "1")("Pie loop with OpenCode Go (live)"
       const session = yield* pie.create({ cwd: process.cwd(), model: "opencode-go/deepseek-v4.1-flash" })
       yield* session.prompt("Usa la tool add para sumar 19 y 23 y responde solo con el número.")
       const outcome = yield* session.awaitIdle
-      const entries = yield* session.entries
-      expect(outcome).toEqual({ status: "completed" })
-      expect(entries.some((e) => e.kind === "toolResult" && e.data.content === "42")).toBe(true)
-      const answer = [...entries].reverse().find((e) => e.kind === "assistant")
-      expect(answer?.kind === "assistant" && answer.data.text).toContain("42")
+      const events = yield* session.events
+      expect(outcome).toMatchObject({ status: "completed" })
+      expect(events.some((e) => e.type === "tool/finished" && (e.data as { content: string }).content === "42")).toBe(true)
+      const answer = [...events].reverse().find((e) => e.type === "model/responded")
+      expect((answer?.data as { text: string }).text).toContain("42")
     }).pipe(
       Effect.provide(Pie.layer({
         storage: Storage.memory,
+        selfModify: false,
         plugins: [
           OpenCodeGoPlugin,
           Plugin.define({

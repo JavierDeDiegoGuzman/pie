@@ -6,8 +6,16 @@
  * Nearly all behaviour of Pie lives in plugins, including the built-in ones,
  * so the agent can disable, replace or write them.
  */
-import type { Effect, FileSystem, Path, Scope } from "effect"
-import type { HookMap, HookName, ModelDefinition, PromptPart, ToolDefinition } from "./Registry.ts"
+import type { Effect, FileSystem, Path, Schema, Scope } from "effect"
+import type {
+  HookMap,
+  HookName,
+  ModelDefinition,
+  ProjectionDefinition,
+  PromptPart,
+  ReactionDefinition,
+  ToolDefinition
+} from "./Registry.ts"
 import type { State } from "./State.ts"
 
 export interface PluginContext {
@@ -18,6 +26,21 @@ export interface PluginContext {
   readonly prompt: State<Array<PromptPart>>
   /** Shorthand for a hooks transform that appends one hook. */
   readonly hook: <K extends HookName>(name: K, hook: HookMap[K]) => Effect.Effect<void, never, Scope.Scope>
+  /**
+   * extend: declares this plugin's event types. `{ added: schema }` registers
+   * "<pluginId>/added". Tools and reactions emit them; the log keeps them even
+   * after the plugin is removed.
+   */
+  readonly events: (schemas: Readonly<Record<string, Schema.Codec<any, any>>>) => Effect.Effect<void, never, Scope.Scope>
+  /** derive: a pure fold over a session branch; recomputed, never stored. */
+  readonly projection: <S>(definition: ProjectionDefinition<S>) => Effect.Effect<Projection<S>, never, Scope.Scope>
+  /** react: runs after matching events are in the log; survives restarts. */
+  readonly react: (definition: ReactionDefinition) => Effect.Effect<void, never, Scope.Scope>
+}
+
+export interface Projection<S> {
+  /** Folds the session's current branch (or up to `leafId`). */
+  readonly get: (sessionId: string, leafId?: string | null) => Effect.Effect<S>
 }
 
 /** Services the host makes available to every plugin. */

@@ -112,7 +112,7 @@ describe("PluginHost", () => {
       yield* Effect.flip(host.replace(failing))
       expect(yield* toolNames).toEqual(["a2", "b"]) // old version still running
       const tool = (yield* registries.tools.get).get("a2")!
-      expect((yield* tool.execute({ text: "hi" }, { sessionId: "s", toolCallId: "t", cwd: "/" })).content).toBe("hi")
+      expect((yield* tool.execute({ text: "hi" }, { sessionId: "s", runId: "r", toolCallId: "t", cwd: "/", emit: () => Effect.void })).content).toBe("hi")
     }).pipe(Effect.provide(TestLayer)))
 
   it.effect("plugin finalizers and forked fibers end with the plugin", () =>

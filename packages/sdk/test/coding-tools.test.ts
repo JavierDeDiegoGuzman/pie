@@ -9,7 +9,7 @@ import { collect } from "../src/plugins/context-files.ts"
 const tool = (name: string) => tools.find((t) => t.name === name)!
 const tmp = () => fs.mkdtempSync(path.join(os.tmpdir(), "pie-tools-"))
 const call = (name: string, params: unknown, cwd: string) =>
-  tool(name).execute(params as never, { sessionId: "s", toolCallId: "t", cwd })
+  tool(name).execute(params as never, { sessionId: "s", runId: "r", toolCallId: "t", cwd, emit: () => Effect.void })
 
 describe("coding tools", () => {
   it.live("read honours offset/limit and tells how to continue", () =>

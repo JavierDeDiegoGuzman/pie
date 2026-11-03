@@ -26,110 +26,93 @@
 </style></head><body>
 
 <h2>1 · Núcleo fijo y plugins</h2>
-<p class="lead">Si algo puede ser plugin, es plugin. El núcleo es lo que el agente usa pero no puede modificar: de él depende recuperarse de una automodificación defectuosa.</p>
+<p class="lead">Lo durable siempre son eventos (log de sesión y log de configuración); lo vivo son efectos que se derivan de ellos. Si algo puede ser plugin, es plugin. Detalle en <code>docs/EVENTOS.md</code>.</p>
 <div class="box"><img class="diagram" src="diagramas/capas.svg" alt="Núcleo y plugins"></div>
 
-<h2>2 · Cómo se componen los registros (State)</h2>
-<p class="lead">Cada registro (tools, modelos, prompt, hooks) se reconstruye desde un valor vacío aplicando, en orden, las transformaciones de los plugins activos. Quitar un plugin es quitar sus transformaciones y reconstruir. Mismo diseño que OpenCode 2.0 («OpenCode Reloaded»).</p>
-<div class="box"><img class="diagram" src="diagramas/state.svg" alt="State">
-<div class="note">Las transformaciones viven en el <code>Scope</code> del plugin. <code>Composition.batch</code> agrupa cambios: reemplazar un plugin se ve como un único cambio y sube la versión de la composición en uno.</div></div>
+<h2>2 · El tick</h2>
+<p class="lead">El agente es un programa Elm: <code>evolve(estado, evento)</code> y <code>decide(estado, ahora)</code> son puras. El runtime pliega la rama, pregunta a <code>decide</code> qué falta y lo ejecuta; los resultados vuelven al log como eventos. Reanudar tras un reinicio es lo mismo que cualquier otro tick.</p>
+<div class="box"><img class="diagram" src="diagramas/tick.svg" alt="Tick"></div>
 
 <h2>3 · Un prompt de principio a fin</h2>
-<p class="lead">Cada «Actividad» es un punto de persistencia: tras un reinicio el Workflow se rejuega y las actividades ya completadas devuelven su resultado guardado sin volver a ejecutarse.</p>
 <div class="box"><img class="diagram" src="diagramas/flujo-prompt.svg" alt="Flujo de un prompt">
-<div class="note"><code>llm/n</code> lee el registro vivo al ejecutarse; su resultado guardado es la foto de la composición de esa llamada. Al rejugar se usa la foto, y un plugin nuevo se ve en la llamada siguiente. Los nombres de actividad son contrato durable: renombrarlos rompe el rejuego de runs en curso.</div></div>
+<div class="note"><code>model/requested</code> guarda el prompt del sistema y las tools ofrecidas: lo que ve el modelo está en el log. Los ids de evento son deterministas (run, turno, llamada), así que repetir un paso nunca duplica nada.</div></div>
 
 <h2>4 · Automodificación</h2>
-<p class="lead">El agente escribe un plugin y lo usa en la siguiente llamada al modelo del mismo run. Si el plugin nuevo no carga, sigue funcionando la versión anterior.</p>
+<p class="lead">Cada cambio es un evento del log de configuración con el código fuente completo. Volver a cualquier versión es <code>plugin_restore</code>. Los plugins del agente no pueden usar puntos de política.</p>
 <div class="box"><img class="diagram" src="diagramas/automodificacion.svg" alt="Automodificación"></div>
 
-<h2>5 · Qué se persiste y cuándo</h2>
-<p class="lead">Tablas de Pie y del motor en la misma base de datos. Los deltas de streaming nunca se guardan.</p>
+<h2>5 · Qué se persiste</h2>
 <div class="box"><img class="diagram" src="diagramas/persistencia.svg" alt="Modelo de datos">
 <table style="margin-top:14px">
-<tr><th>Momento</th><th>Qué queda en disco</th><th>Garantía</th></tr>
-<tr><td>prompt()</td><td>Sesión reclamada (<code>active_run</code>) + entrada <code>user</code>, en una transacción</td><td>Un solo run por sesión; el arranque reanuda los runs reclamados</td></tr>
-<tr><td>llm/n termina</td><td>Respuesta completa (reply del motor)</td><td>Ese turno no se vuelve a pagar tras un reinicio</td></tr>
-<tr><td>assistant/n, results/n</td><td>Entradas <code>assistant</code> y <code>toolResult</code></td><td>Exactamente una vez (id determinista)</td></tr>
-<tr><td>Tool empieza</td><td>Marca en <code>pie_tool_attempts</code></td><td>Detecta «se ejecutó a medias»</td></tr>
-<tr><td>steer / followUp</td><td>Fila en <code>pie_inputs</code></td><td>Se consume en transacción: ni se pierde ni se duplica</td></tr>
-<tr><td>abort()</td><td>Fila en <code>pie_aborts</code></td><td>Se aplica aunque el proceso esté caído</td></tr>
-<tr><td>Fin del run</td><td>Entrada <code>runEnd</code> + sesión libre</td><td>Idempotente (finalizador del Workflow)</td></tr>
-<tr><td>Deltas de texto</td><td>Nada (PubSub en memoria)</td><td>Quien llega tarde lee las entradas y se engancha al vivo</td></tr>
-</table></div>
+<tr><th>Tabla</th><th>Qué guarda</th></tr>
+<tr><td>pie_events</td><td>Toda la sesión, en árbol: eventos del núcleo y de plugins</td></tr>
+<tr><td>pie_sessions</td><td>cwd, modelo inicial y hoja de la rama actual</td></tr>
+<tr><td>pie_config</td><td>Log de configuración de plugins, con el código de cada versión</td></tr>
+<tr><td>pie_cursors</td><td>Hasta dónde ha procesado cada reacción en cada sesión</td></tr>
+<tr><td>pie_workflow</td><td>Journal de los workflows de Effect: ejecuciones, actividades, deferreds, relojes, resultados</td></tr>
+<tr><td>pie_lock</td><td>Un runtime por base de datos</td></tr>
+</table>
+<div class="note">Los deltas de streaming nunca se guardan: van por <code>session.live</code>. Las proyecciones de los plugins tampoco: se recalculan plegando la rama.</div></div>
 
-<h2>6 · Estados de una sesión</h2>
+<h2>6 · Estados de un run</h2>
 <div class="box"><img class="diagram" src="diagramas/estados.svg" alt="Estados"></div>
 
 <h2>7 · Entornos</h2>
-<p class="lead">Un solo parámetro, <code>storage</code>. La regla: sesiones y motor siempre en la misma base de datos.</p>
-<div class="box"><img class="diagram" style="max-width:520px" src="diagramas/entornos.svg" alt="Entornos"></div>
+<div class="box"><img class="diagram" style="max-width:560px" src="diagramas/entornos.svg" alt="Entornos"></div>
 
 <h2>8 · Casos extremos</h2>
-<div class="legend"><span class="tag ok">probado</span><span class="tag impl">implementado</span><span class="tag warn">diseño, sin implementar</span><span class="tag bad">riesgo / por verificar</span></div>
+<div class="legend"><span class="tag ok">probado</span><span class="tag impl">implementado</span><span class="tag warn">pendiente</span><span class="tag bad">riesgo</span></div>
 <div class="box"><table>
 <tr><th>Caso</th><th>Qué pasa</th><th></th></tr>
-<tr><td>SIGKILL durante una tool idempotente</td><td>Al reanudar se vuelve a ejecutar.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>SIGKILL durante una tool no idempotente</td><td>No se repite: el modelo recibe «outcome unknown, comprueba el estado».</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>SIGKILL con un turno del LLM ya respondido</td><td>No se vuelve a llamar al modelo para ese turno.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>SIGKILL a mitad del stream del LLM</td><td>Se repite ese turno entero (se paga otra vez). Mismo mecanismo que el anterior.</td><td><span class="tag impl">implementado</span></td></tr>
-<tr><td>prompt() con un run activo</td><td>Falla con <code>SessionBusy</code> salvo <code>streamingBehavior</code>.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>followUp durante un run</td><td>Se absorbe en el mismo run al terminar.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>steer durante una tool</td><td>Se entrega tras las tools y antes de la siguiente llamada.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>followUp justo cuando el run termina</td><td><code>finish</code> y el encolado se serializan en una transacción.</td><td><span class="tag impl">implementado</span></td></tr>
-<tr><td>abort() durante una tool</td><td>La tool se corta, el run acaba <code>aborted</code> y la sesión queda libre.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>abort() con el proceso caído</td><td>La marca en <code>pie_aborts</code> se comprueba al empezar cada actividad.</td><td><span class="tag impl">implementado</span></td></tr>
-<tr><td>Texto parcial al abortar</td><td>Se guarda como assistant con motivo <code>aborted</code>.</td><td><span class="tag impl">implementado</span></td></tr>
-<tr><td>Tool inexistente o de un plugin ya quitado</td><td>Resultado de error para el modelo; el run sigue.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Hook <code>tool.before</code> deniega</td><td>Resultado «Denied: …»; la decisión queda guardada con la actividad.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Plugin instalado a mitad de run</td><td>Su tool aparece en la siguiente llamada al modelo.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Plugin con error de sintaxis o setup fallido</td><td>Se mantiene la versión anterior; el error queda en <code>status</code>.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Rate limit / 5xx</td><td>2 reintentos con backoff dentro de la actividad; luego <code>failed</code>. Faltan eventos <code>auto_retry_*</code>.</td><td><span class="tag impl">implementado</span></td></tr>
-<tr><td>write / edit repetidos tras reinicio</td><td>write reescribe lo mismo; edit da por aplicado un reemplazo cuyo texto nuevo ya está.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>bash interrumpido o abortado</td><td>Se mata el grupo de procesos entero.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Plugin escrito fuera del repo</td><td>Importa <code>effect</code> y <code>@pie/sdk</code> desde la copia de Pie.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Tool sin parámetros con proveedores OpenAI-compatibles</td><td>Se envía un JSON Schema de objeto vacío explícito.</td><td><span class="tag ok">probado en vivo</span></td></tr>
-<tr><td>Opcionales enviados como <code>null</code></td><td>Se reintenta la validación sin los <code>null</code> de primer nivel.</td><td><span class="tag ok">probado</span></td></tr>
-<tr><td>Contexto desbordado</td><td>Compactación como plugin.</td><td><span class="tag warn">diseño</span></td></tr>
-<tr><td>Aprobación humana</td><td><code>DurableDeferred</code> pedido por un hook.</td><td><span class="tag warn">diseño</span></td></tr>
-<tr><td>Navegar / fork del árbol</td><td>El árbol existe en datos; falta la API.</td><td><span class="tag warn">diseño</span></td></tr>
-<tr><td>Actualizar Pie con runs a medias</td><td>Cambiar nombres de actividad o esquemas rompe el rejuego.</td><td><span class="tag bad">riesgo</span></td></tr>
-<tr><td>Dos procesos sobre el mismo .db</td><td><code>SingleRunner</code> asume un nodo.</td><td><span class="tag bad">por verificar</span></td></tr>
+<tr><td>SIGKILL con un turno del modelo ya respondido</td><td>No se vuelve a llamar al modelo.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>SIGKILL durante una tool idempotente</td><td>Se repite.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>SIGKILL durante una tool no idempotente</td><td>No se repite: «outcome unknown».</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>SIGKILL a mitad del stream del modelo</td><td><code>model/requested</code> sin respuesta: se repite la llamada.</td><td><span class="tag impl">implementado</span></td></tr>
+<tr><td>Fallo del proveedor</td><td><code>model/failed</code> con hora de reintento; 3 intentos con backoff; luego <code>failed</code>.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>prompt con un run activo / steer / followUp</td><td>SessionBusy; steer tras las tools; followUp al terminar, en el mismo run.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>abort durante una tool</td><td>La tool se corta, el run acaba <code>aborted</code>, la sesión queda libre.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Ids de tool repetidos entre turnos</td><td>Los ids de evento incluyen el turno.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Tools de plugin en paralelo que leen estado</td><td>Los eventos registran hechos; ids y contadores los deriva la proyección.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Bifurcar (navigate) con estado de plugin</td><td>La proyección es la de la rama.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Plugin roto, o que usa un punto de política</td><td>Rechazado en la validación; nada cambia.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Instalar un plugin a mitad de run (hot y restart)</td><td>Su tool aparece en la siguiente llamada; en restart, tras drenar y relanzar.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Workflow de Effect con SIGKILL</td><td>Actividades hechas no se repiten; el reloj mantiene su hora; la aprobación lo reanuda; el resultado queda guardado.</td><td><span class="tag ok">probado</span></td></tr>
+<tr><td>Dos procesos sobre la misma base de datos</td><td>Bloqueo con caducidad de 3 s; el segundo espera hasta 10 s y falla.</td><td><span class="tag impl">implementado</span></td></tr>
+<tr><td>Reacción nueva sobre sesiones existentes</td><td>Empieza desde ahora, no desde el historial.</td><td><span class="tag impl">implementado</span></td></tr>
+<tr><td>Sesiones muy largas</td><td>Las proyecciones pliegan la rama entera en cada lectura; harán falta instantáneas.</td><td><span class="tag warn">pendiente</span></td></tr>
+<tr><td>Bifurcar una sesión con workflows en marcha</td><td>El journal de workflows no forma parte del árbol de la sesión.</td><td><span class="tag bad">riesgo</span></td></tr>
+<tr><td>Cambiar tipos o payloads de eventos del núcleo</td><td>Son el contrato durable: solo cambios compatibles.</td><td><span class="tag bad">riesgo</span></td></tr>
 </table></div>
 
-<h2>9 · API del SDK (implementada)</h2>
-<pre><span class="k">import</span> { Pie, Plugin, Storage, OpenCodeGoPlugin, defineTool } <span class="k">from</span> <span class="s">"@pie/sdk"</span>
+<h2>9 · API del SDK</h2>
+<pre><span class="k">import</span> { Pie, Plugin, Storage, TodoPlugin, defineTool } <span class="k">from</span> <span class="s">"@pie/sdk"</span>
 
 <span class="k">const</span> PieLive = Pie.layer({
   storage: Storage.sqlite(<span class="s">"pie.db"</span>),             <span class="c">// o Storage.memory</span>
-  plugins: [...Pie.builtins, myTools],              <span class="c">// opencode-go, system-prompt, context-files, coding-tools</span>
-  pluginDirectories: [<span class="s">".pie/plugins"</span>]               <span class="c">// vigilados: automodificación</span>
+  plugins: [...Pie.builtins, TodoPlugin],           <span class="c">// opencode-go, system-prompt, context-files, coding-tools</span>
+  reload: <span class="s">"hot"</span>                                     <span class="c">// o "restart" con Supervisor.run + Pie.exitOnRestart</span>
 })
 
 <span class="k">const</span> program = Effect.gen(<span class="k">function</span>*() {
   <span class="k">const</span> pie = <span class="k">yield</span>* Pie.Pie
   <span class="k">const</span> session = <span class="k">yield</span>* pie.create({ cwd: <span class="s">"/repo"</span>, model: <span class="s">"opencode-go/deepseek-v4.1-flash"</span> })
-  <span class="c">// también: pie.open(id) · pie.list · pie.events</span>
-
-  <span class="k">yield</span>* session.events.pipe(Stream.runForEach(onEvent), Effect.forkScoped)
+  <span class="k">yield</span>* session.live.pipe(Stream.runForEach(onEvent), Effect.forkScoped)   <span class="c">// eventos + deltas</span>
   <span class="k">yield</span>* session.prompt(<span class="s">"arregla el test"</span>)
-  <span class="k">yield</span>* session.steer(<span class="s">"usa vitest"</span>)
-  <span class="k">yield</span>* session.followUp(<span class="s">"luego haz commit"</span>)
-  <span class="k">const</span> outcome = <span class="k">yield</span>* session.awaitIdle          <span class="c">// { status: "completed" | "aborted" | ... }</span>
-  <span class="k">const</span> entries = <span class="k">yield</span>* session.entries           <span class="c">// rama actual</span>
+  <span class="k">const</span> outcome = <span class="k">yield</span>* session.awaitIdle            <span class="c">// run/ended: completed | failed | aborted | turn_limit</span>
+  <span class="k">const</span> events = <span class="k">yield</span>* session.events              <span class="c">// la rama actual: toda la verdad</span>
+  <span class="k">yield</span>* session.navigate(events[1].id)               <span class="c">// bifurcar desde ahí</span>
 })
 
-<span class="c">// Un plugin: un Effect con su Scope; todo lo que registra se va con él</span>
+<span class="c">// Un plugin con estado: extend + derive + tool que emite + view</span>
 <span class="k">export default</span> Plugin.define({
-  id: <span class="s">"guardian"</span>,
+  id: <span class="s">"notes"</span>,
   setup: (ctx) =&gt; Effect.gen(<span class="k">function</span>*() {
-    <span class="k">yield</span>* ctx.tools.transform((tools) =&gt; { tools.set(<span class="s">"word_count"</span>, defineTool({ ... })) })
-    <span class="k">yield</span>* ctx.prompt.transform((parts) =&gt; { parts.push({ key: <span class="s">"guardian"</span>, text: <span class="s">"..."</span> }) })
-    <span class="k">yield</span>* ctx.hook(<span class="s">"tool.before"</span>, (e) =&gt; Effect.sync(() =&gt; {
-      <span class="k">if</span> (e.tool === <span class="s">"bash"</span>) e.decision = { _tag: <span class="s">"Deny"</span>, reason: <span class="s">"solo lectura"</span> }
-    }))
+    <span class="k">yield</span>* ctx.events({ added: Schema.Struct({ text: Schema.String }) })
+    <span class="k">const</span> notes = <span class="k">yield</span>* ctx.projection({ id: <span class="s">"notes"</span>, initial: () =&gt; [], on: { <span class="s">"notes/added"</span>: (s, e) =&gt; [...s, e.text] } })
+    <span class="k">yield</span>* ctx.tools.transform((t) =&gt; t.set(<span class="s">"note_add"</span>, defineTool({ ...,
+      execute: ({ text }, tool) =&gt; Effect.as(Effect.orDie(tool.emit(<span class="s">"notes/added"</span>, { text })), { content: <span class="s">"saved"</span> }) })))
+    <span class="k">yield</span>* ctx.hook(<span class="s">"context"</span>, (e) =&gt; Effect.map(notes.get(e.sessionId), (n) =&gt; void e.system.push({ key: <span class="s">"notes"</span>, text: n.join(<span class="s">"\n"</span>) })))
+    <span class="k">yield</span>* ctx.react({ id: <span class="s">"audit"</span>, on: [<span class="s">"tool/finished"</span>], run: (event, r) =&gt; ... })
   })
-})
-
-<span class="c">// Eventos: agent_start · turn_start · text_delta · reasoning_delta · tool_start · tool_end · entry · agent_end</span></pre>
+})</pre>
 </body></html>

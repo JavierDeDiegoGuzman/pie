@@ -51,7 +51,7 @@ const program = Effect.gen(function*() {
   }
   const session = yield* pie.open("s1")
   const outcome = yield* session.awaitIdle
-  process.stdout.write(JSON.stringify({ outcome, entries: yield* session.entries }) + "\n")
+  process.stdout.write(JSON.stringify({ outcome, events: yield* session.events }) + "\n")
 })
 
 NodeRuntime.runMain(

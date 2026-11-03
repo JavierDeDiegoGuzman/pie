@@ -8,7 +8,7 @@ import { Plugin } from "../../src/index.ts"
 
 export type Reply =
   | { readonly text: string }
-  | { readonly tools: ReadonlyArray<{ readonly name: string; readonly params: unknown }> }
+  | { readonly tools: ReadonlyArray<{ readonly name: string; readonly params: unknown; readonly id?: string }> }
 
 export const FAKE_MODEL = "fake/scripted"
 
@@ -33,7 +33,7 @@ const toParts = (reply: Reply): Array<Response.StreamPartEncoded> => {
   return [
     ...reply.tools.map((tool) => ({
       type: "tool-call",
-      id: `call_${callCounter++}`,
+      id: tool.id ?? `call_${callCounter++}`,
       name: tool.name,
       params: tool.params,
       providerExecuted: false

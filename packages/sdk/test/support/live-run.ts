@@ -1,11 +1,11 @@
 /**
  * Manual live run against OpenCode Go with all built-in plugins.
  *   node --no-warnings packages/sdk/test/support/live-run.ts <cwd> "<prompt>"
- * Prints the transcript. Plugins written by the agent go to <cwd>/.pie/plugins.
+ * Prints the transcript. Sessions and the configuration log go to <cwd>/pie.db.
  */
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
-import { Pie, Storage } from "../../src/index.ts"
+import { Pie, Storage, TodoPlugin } from "../../src/index.ts"
 
 const [dir] = process.argv.slice(2) as [string]
 
@@ -16,18 +16,19 @@ const program = Effect.gen(function*() {
     process.argv[3]!
   )
   const outcome = yield* session.awaitIdle
-  for (const e of yield* session.entries) {
-    if (e.kind === "assistant") {
-      console.log(`[assistant] ${e.data.text.slice(0, 300)}${e.data.toolCalls.map((c) => `\n  → ${c.name}(${JSON.stringify(c.params).slice(0, 160)})`).join("")}`)
-    } else if (e.kind === "toolResult") console.log(`[${e.data.toolName}${e.data.isError ? " ERROR" : ""}] ${e.data.content.slice(0, 300)}`)
-    else console.log(`[${e.kind}] ${JSON.stringify(e.data).slice(0, 200)}`)
+  for (const e of yield* session.events) {
+    const d = e.data as any
+    if (e.type === "model/responded") {
+      console.log(`[assistant] ${d.text.slice(0, 300)}${d.toolCalls.map((c: any) => `\n  → ${c.name}(${JSON.stringify(c.params).slice(0, 160)})`).join("")}`)
+    } else if (e.type === "tool/finished") console.log(`[${d.name}${d.isError ? " ERROR" : ""}] ${d.content.slice(0, 300)}`)
+    else if (e.type !== "model/requested" && e.type !== "tool/started") console.log(`[${e.type}] ${JSON.stringify(d).slice(0, 200)}`)
   }
   console.log("OUTCOME", JSON.stringify(outcome))
 })
 
 NodeRuntime.runMain(
   program.pipe(
-    Effect.provide(Pie.layer({ storage: Storage.memory, plugins: Pie.builtins, pluginDirectories: [`${dir}/.pie/plugins`] })),
+    Effect.provide(Pie.layer({ storage: Storage.sqlite(`${dir}/pie.db`), plugins: [...Pie.builtins, TodoPlugin] })),
     Effect.scoped,
     Effect.timeout("150 seconds"),
     Effect.andThen(Effect.sync(() => process.exit(0)))

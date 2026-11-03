@@ -1,29 +1,23 @@
 sequenceDiagram
   autonumber
   participant U as Host
-  participant S as Session
-  participant D as SQLite
-  participant W as AgentRun
-  participant R as Registries
-  participant L as LLM
+  participant R as Runtime (tick)
+  participant L as Log
+  participant M as LLM
   participant T as Tool
-  U->>S: prompt("arregla el test")
-  S->>D: beginRun [tx]: reclama la sesión + entrada user
-  S->>W: execute(runId) (idempotente)
-  loop turno n
-    W->>R: Actividad llm/n: lee tools, prompt y modelo vivos + hook context
-    W->>L: streamText (deltas → Events, efímeros)
-    L-->>W: AssistantData (= foto de la composición de esta llamada)
-    W->>D: Actividad assistant/n: entrada assistant
-    par por cada toolCall
-      W->>D: Actividad tool/n/id: marca de inicio
-      W->>T: hooks tool.before → execute → hooks tool.after
-      T-->>W: ToolResultData
+  U->>R: prompt("arregla el test")
+  R->>L: run/started + user (atómico)
+  loop mientras decide pida algo
+    R->>L: model/requested (system + tools ofrecidas)
+    R->>M: streamText (deltas → live, efímeros)
+    M-->>R: respuesta
+    R->>L: model/responded
+    par por cada tool call
+      R->>L: tool/started
+      R->>T: hooks tool.before → execute (puede emitir eventos del plugin) → tool.after
+      R->>L: tool/finished
     end
-    W->>D: Actividad results/n: entradas toolResult
-    W->>D: Actividad steer/n [tx]: consume steers
+    R->>L: user (steers en cola, si los hay)
   end
-  W->>D: Actividad finish/n [tx]: ¿followUps? → seguir · si no, libera la sesión
-  W->>D: finalizador: entrada runEnd (idempotente)
-  S-->>U: agent_end
-  Note over S,T: abort(): marca durable en pie_aborts + señal en memoria,<br/>el stream y las tools en curso se cortan, el texto parcial se guarda
+  R->>L: run/ended (o user con followUps y sigue)
+  Note over R,L: Tras un reinicio: plegar el log y decide da exactamente lo que faltaba

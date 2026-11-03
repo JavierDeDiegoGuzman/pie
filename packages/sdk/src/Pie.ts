@@ -1,43 +1,44 @@
 /**
  * Public SDK entry point.
  *
- *   const PieLive = Pie.layer({ storage: Storage.sqlite("pie.db"), plugins: [OpenCodeGoPlugin] })
- *   const pie = yield* Pie
+ *   const PieLive = Pie.layer({ storage: Storage.sqlite("pie.db") })
+ *   const pie = yield* Pie.Pie
  *   const session = yield* pie.create({ cwd, model: "opencode-go/deepseek-v4.1-flash" })
  *   yield* session.prompt("...")
- *   yield* session.awaitIdle
+ *   const outcome = yield* session.awaitIdle
  */
 import { randomUUID } from "node:crypto"
+import * as os from "node:os"
+import * as path from "node:path"
 import { NodeServices } from "@effect/platform-node"
-import { Context, Effect, Layer, Schedule, type Stream } from "effect"
-import type { WorkflowEngine } from "effect/workflow"
-import type { SqlClient } from "effect/sql"
+import { Context, Effect, Layer, type Scope, type Stream } from "effect"
 import { AbortSignals } from "./core/AbortSignals.ts"
+import type * as Agent from "./core/Agent.ts"
+import { ConfigLog } from "./core/ConfigLog.ts"
+import * as Core from "./core/Core.ts"
+import { Events, type PieEvent } from "./core/Events.ts"
+import { EventLog, type LogEvent, type SessionInfo, type SessionNotFound } from "./core/Log.ts"
+import * as LogWorkflowEngine from "./core/LogWorkflowEngine.ts"
 import * as ModuleResolution from "./core/ModuleResolution.ts"
+import type { Plugin } from "./core/Plugin.ts"
+import { PluginHost } from "./core/PluginHost.ts"
+import { PluginLoader } from "./core/PluginLoader.ts"
+import { type BuiltinEntry, Plugins } from "./core/Plugins.ts"
+import { Runtime, type SessionBusy } from "./core/Runtime.ts"
+import type { Storage } from "./core/Storage.ts"
 import CodingToolsPlugin from "./plugins/coding-tools.ts"
 import ContextFilesPlugin from "./plugins/context-files.ts"
 import OpenCodeGoPlugin from "./plugins/opencode-go.ts"
 import * as SelfPlugin from "./plugins/self.ts"
 import SystemPromptPlugin from "./plugins/system-prompt.ts"
-import { AgentRun, AgentRunLive } from "./core/AgentRun.ts"
-import * as Core from "./core/Core.ts"
-import { Events, type PieEvent } from "./core/Events.ts"
-import type { Plugin } from "./core/Plugin.ts"
-import { PluginHost, type PluginLoadError } from "./core/PluginHost.ts"
-import { PluginLoader } from "./core/PluginLoader.ts"
-import {
-  type Entry,
-  type RunOutcome,
-  SessionBusy,
-  type SessionInfo,
-  type SessionNotFound,
-  SessionStore
-} from "./core/Session.ts"
+import { RESTART_EXIT_CODE } from "./Supervisor.ts"
 
 export interface PromptOptions {
   /** Required while a run is active: queue the text instead of failing. */
   readonly streamingBehavior?: "steer" | "followUp" | undefined
 }
+
+export type Outcome = Agent.CoreEvents["run/ended"]
 
 export interface Session {
   readonly id: string
@@ -49,148 +50,134 @@ export interface Session {
   /** Delivered when the agent would otherwise stop; starts a run if idle. */
   readonly followUp: (text: string) => Effect.Effect<void>
   readonly abort: Effect.Effect<void>
-  /** Waits until no run is active and returns the last run's outcome. */
-  readonly awaitIdle: Effect.Effect<RunOutcome | undefined>
-  /** Entries of the current branch, root first. */
-  readonly entries: Effect.Effect<ReadonlyArray<Entry>>
-  /** Live events of this session (not replayed: read `entries` for history). */
-  readonly events: Stream.Stream<PieEvent>
+  /** Waits until no run is active; returns the last run's outcome. */
+  readonly awaitIdle: Effect.Effect<Outcome | undefined>
+  /** Events of the current branch, root first: the whole truth of the session. */
+  readonly events: Effect.Effect<ReadonlyArray<LogEvent>>
+  /** Moves the session to an earlier event; the next prompt branches from there. */
+  readonly navigate: (eventId: string | null) => Effect.Effect<void, SessionBusy>
+  readonly setModel: (model: string) => Effect.Effect<void>
+  readonly state: Effect.Effect<Agent.AgentState>
+  /** Live: every appended event plus streaming deltas. */
+  readonly live: Stream.Stream<PieEvent>
 }
 
 export class Pie extends Context.Service<Pie, {
   readonly create: (options: { readonly cwd: string; readonly model: string; readonly id?: string }) => Effect.Effect<Session>
   readonly open: (id: string) => Effect.Effect<Session, SessionNotFound>
   readonly list: Effect.Effect<ReadonlyArray<SessionInfo>>
-  readonly events: Stream.Stream<PieEvent>
+  readonly live: Stream.Stream<PieEvent>
 }>()("pie/Pie") {}
 
 const make = Effect.gen(function*() {
-  const store = yield* SessionStore
+  const log = yield* EventLog
+  const runtime = yield* Runtime
   const events = yield* Events
-  const signals = yield* AbortSignals
-  const engine = yield* Effect.context<WorkflowEngine.WorkflowEngine>()
 
-  const start = (sessionId: string, runId: string) =>
-    events.publish({ type: "agent_start", sessionId, runId }).pipe(
-      Effect.andThen(AgentRun.execute({ sessionId, runId }, { discard: true })),
-      Effect.provideContext(engine)
-    )
-
-  const handle = (id: string): Session => {
-    const queue = (kind: "steer" | "followUp", text: string) =>
-      Effect.gen(function*() {
-        const runId = randomUUID()
-        const result = yield* store.enqueue(id, { id: randomUUID(), kind, text, runId }).pipe(Effect.orDie)
-        if (result === "started") yield* start(id, runId)
-      })
-    return {
-      id,
-      info: Effect.orDie(store.get(id)),
-      prompt: (text, options) =>
-        Effect.gen(function*() {
-          const runId = randomUUID()
-          const begun = yield* store.beginRun(id, runId, text).pipe(
-            Effect.catchTag("SessionNotFound", Effect.die),
-            Effect.as(true),
-            Effect.catchTag("SessionBusy", (busy) =>
-              options?.streamingBehavior ? Effect.succeed(false) : Effect.fail(busy))
-          )
-          if (begun) return yield* start(id, runId)
-          yield* queue(options!.streamingBehavior!, text)
-        }),
-      steer: (text) => queue("steer", text),
-      followUp: (text) => queue("followUp", text),
-      abort: Effect.gen(function*() {
-        const { activeRun } = yield* Effect.orDie(store.get(id))
-        if (activeRun === null) return
-        yield* store.requestAbort(activeRun)
-        yield* signals.fire(activeRun)
-      }),
-      awaitIdle: Effect.gen(function*() {
-        yield* Effect.orDie(store.get(id)).pipe(
-          Effect.repeat({ until: (s) => s.activeRun === null, schedule: Schedule.spaced("25 millis") })
-        )
-        const branch = yield* store.branch(id)
-        const last = [...branch].reverse().find((e) => e.kind === "runEnd")
-        return last?.kind === "runEnd" ? { status: last.data.status, ...(last.data.message ? { message: last.data.message } : {}) } : undefined
-      }),
-      entries: store.branch(id),
-      events: events.stream(id)
-    }
-  }
-
-  // Resume: re-attach every run that was active when the process stopped.
-  // execute is idempotent by runId: a finished run returns its stored result,
-  // an unfinished one continues from its last completed activity.
-  for (const session of yield* store.listActive) {
-    const runId = session.activeRun!
-    yield* AgentRun.execute({ sessionId: session.id, runId }).pipe(
-      Effect.flatMap((outcome) => store.endRun(session.id, runId, outcome)),
-      Effect.catchCause(() => Effect.void),
-      Effect.provideContext(engine),
-      Effect.forkDetach
-    )
-  }
+  const handle = (id: string): Session => ({
+    id,
+    info: Effect.orDie(log.getSession(id)),
+    prompt: (text, options) => runtime.prompt(id, text, options).pipe(Effect.catchTag("SessionNotFound", Effect.die)),
+    steer: (text) => Effect.orDie(runtime.enqueue(id, "steer", text)),
+    followUp: (text) => Effect.orDie(runtime.enqueue(id, "followUp", text)),
+    abort: Effect.orDie(runtime.abort(id)),
+    awaitIdle: Effect.orDie(runtime.awaitIdle(id)),
+    events: log.branch(id),
+    navigate: (eventId) => runtime.navigate(id, eventId).pipe(Effect.catchTag("SessionNotFound", Effect.die)),
+    setModel: (model) => Effect.orDie(runtime.setModel(id, model)),
+    state: Effect.orDie(runtime.state(id)),
+    live: events.stream(id)
+  })
 
   return Pie.of({
-    create: ({ cwd, model, id }) => Effect.map(store.create({ id: id ?? randomUUID(), cwd, model }), (info) => handle(info.id)),
-    open: (id) => Effect.map(store.get(id), (info) => handle(info.id)),
-    list: store.list,
-    events: events.stream()
+    create: ({ cwd, id, model }) => Effect.map(log.createSession({ id: id ?? randomUUID(), cwd, model }), (info) => handle(info.id)),
+    open: (id) => Effect.map(log.getSession(id), (info) => handle(info.id)),
+    list: log.listSessions,
+    live: events.stream()
   })
 })
 
 export interface LayerOptions {
   /** Storage.sqlite(file) or Storage.memory. */
-  readonly storage: Layer.Layer<SqlClient.SqlClient | WorkflowEngine.WorkflowEngine>
-  /** Plugins loaded at startup, in order (built-ins first, typically). */
-  readonly plugins?: ReadonlyArray<Plugin | { readonly plugin: Plugin; readonly options: Record<string, unknown> }>
-  /**
-   * Directories synced and watched for plugin files. The first one is where
-   * the agent writes plugins (self-modification).
-   */
+  readonly storage: Storage
+  /** Built-in plugins in order. Default: `builtins`. The agent can disable them unless protected. */
+  readonly plugins?: ReadonlyArray<Plugin | BuiltinEntry>
+  /** Directories of human-managed plugin files, synced and watched. */
   readonly pluginDirectories?: ReadonlyArray<string>
-  /** Give the agent the plugin_* tools. Default: true when pluginDirectories is set. */
+  /** Give the agent the plugin_* tools (self-modification). Default: true. */
   readonly selfModify?: boolean
+  /** Plugin ids the agent cannot remove, disable or overwrite. "self" is always protected. */
+  readonly protected?: ReadonlyArray<string>
+  /**
+   * How plugin changes apply. "hot": in this process, from the next model call.
+   * "restart": drain to a safe point and exit with RESTART_EXIT_CODE (use with
+   * Supervisor.run and Pie.exitOnRestart).
+   */
+  readonly reload?: "hot" | "restart"
+  /** Where agent-installed plugin sources are materialized to be imported. */
+  readonly pluginCacheDirectory?: string
 }
 
 /** The plugins Pie ships with, in their default order. */
 export const builtins: ReadonlyArray<Plugin> = [OpenCodeGoPlugin, SystemPromptPlugin, ContextFilesPlugin, CodingToolsPlugin]
 
 export const layer = (options: LayerOptions) => {
-  const loadPlugins = Layer.effectDiscard(Effect.gen(function*() {
-    const host = yield* PluginHost
-    const loader = yield* PluginLoader
-    for (const entry of options.plugins ?? []) {
-      const [plugin, pluginOptions] = "plugin" in entry ? [entry.plugin, entry.options] : [entry, {}]
-      yield* host.load(plugin, { options: pluginOptions, source: `builtin:${plugin.id}` }).pipe(
-        Effect.catchTag("PluginLoadError", (e: PluginLoadError) => Effect.logWarning(`plugin ${e.id} failed: ${e.message}`))
-      )
-    }
-    const directories = options.pluginDirectories ?? []
-    if (directories.length > 0) {
-      ModuleResolution.register()
-      if (options.selfModify ?? true) {
-        yield* host.load(SelfPlugin.make({ host, loader, directory: directories[0]! }), { source: "builtin:self" }).pipe(Effect.orDie)
-      }
-    }
-    for (const directory of directories) yield* loader.watch(directory)
+  ModuleResolution.register()
+  const entries: ReadonlyArray<BuiltinEntry> = (options.plugins ?? builtins).map((p) => ("plugin" in p ? p : { plugin: p }))
+
+  const plugins = Layer.effect(Plugins, Plugins.make({
+    builtins: entries,
+    protected: new Set(["self", ...(options.protected ?? [])]),
+    cacheDirectory: options.pluginCacheDirectory ?? path.join(os.tmpdir(), "pie-plugin-cache"),
+    reload: options.reload ?? "hot"
   }))
 
-  const runtime = Layer.mergeAll(
-    Layer.effect(SessionStore, SessionStore.make),
+  const startup = Layer.effectDiscard(Effect.gen(function*() {
+    const host = yield* PluginHost
+    const loader = yield* PluginLoader
+    const manager = yield* Plugins
+    const config = yield* ConfigLog
+    if (options.selfModify ?? true) {
+      yield* host.load(SelfPlugin.make({ plugins: manager, host, config }), { source: "builtin:self", order: 500 }).pipe(Effect.orDie)
+    }
+    for (const directory of options.pluginDirectories ?? []) yield* loader.watch(directory)
+    yield* (yield* Runtime).start
+  }))
+
+  const base = Layer.mergeAll(
+    Layer.effect(EventLog, EventLog.make),
+    Layer.effect(ConfigLog, ConfigLog.make),
     Layer.effect(Events, Events.make),
     Layer.effect(AbortSignals, AbortSignals.make)
   )
 
   return Layer.effect(Pie, make).pipe(
-    Layer.provideMerge(AgentRunLive),
-    Layer.provideMerge(loadPlugins),
-    Layer.provideMerge(runtime),
+    Layer.provideMerge(startup),
+    Layer.provideMerge(plugins),
+    Layer.provideMerge(LogWorkflowEngine.layer),
+    Layer.provideMerge(Layer.effect(Runtime, Runtime.make)),
     Layer.provideMerge(Core.layer),
+    Layer.provideMerge(base),
     Layer.provideMerge(options.storage),
     Layer.provideMerge(NodeServices.layer)
   )
 }
 
-export { SessionBusy }
+/**
+ * For reload: "restart". Runs the program until a plugin change asks for a
+ * restart, then exits the process with RESTART_EXIT_CODE so Supervisor.run
+ * starts it again.
+ */
+export const exitOnRestart = <A, E, R>(program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | Plugins | Runtime | Scope.Scope> =>
+  Effect.gen(function*() {
+    const manager = yield* Plugins
+    const runtime = yield* Runtime
+    yield* manager.restartRequested.pipe(
+      Effect.andThen(runtime.release),
+      Effect.andThen(Effect.sync(() => process.exit(RESTART_EXIT_CODE))),
+      Effect.forkScoped
+    )
+    return yield* program
+  })
+
+export { Runtime }

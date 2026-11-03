@@ -1,90 +1,52 @@
 # Pie: núcleo fijo y plugins
 
 Regla: si algo puede ser plugin, es plugin. El núcleo es lo que el agente usa
-pero no puede modificar, porque de ello depende poder recuperarse de una
-automodificación defectuosa.
+pero no puede modificar: de él depende recuperarse de una automodificación
+defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
 
 ## Núcleo (fijo)
 
-| Pieza | Archivo | Estado |
-|---|---|---|
-| `State`: registro reconstruido reaplicando transformaciones ordenadas | `core/State.ts` | hecho |
-| `Composition`: agrupa reconstrucciones y versiona la composición | `core/State.ts` | hecho |
-| `Registries`: tools, modelos, fragmentos de prompt, hooks | `core/Registry.ts` | hecho |
-| `PluginHost`: load / replace transaccional / unload por `Scope` | `core/PluginHost.ts` | hecho |
-| `PluginLoader`: sincroniza un directorio de plugins, con marcha atrás | `core/PluginLoader.ts` | hecho |
-| `AgentRun`: bucle durable (Workflow + actividades) | `core/AgentRun.ts` | hecho |
-| `SessionStore`: árbol de entradas, colas, marcas de tool, aborts | `core/Session.ts` | hecho |
-| Persistencia: `Storage.memory`, `Storage.sqlite` | `core/Storage.ts` | hecho (Postgres pendiente) |
-| Eventos en vivo | `core/Events.ts` | hecho |
-| Abort cooperativo (marca durable + señal en memoria) | `core/AbortSignals.ts` | hecho |
-| Foto de la composición por llamada al LLM | `llm/<turno>` en `AgentRun.ts` | hecho |
-| API pública `Pie` / `Session` | `Pie.ts` | hecho (falta navegar/fork, compactar, aprobaciones) |
-
-## Plugins (incluidos, desactivables, reemplazables)
-
-| Plugin | Estado |
+| Pieza | Archivo |
 |---|---|
-| `opencode-go`: modelos de OpenCode Go | hecho |
-| `coding-tools`: read, write, edit, bash, grep, find, ls (parámetros y límites de pi) | hecho |
-| `system-prompt`: prompt base + entorno de la sesión | hecho |
-| `context-files`: `~/.pie/AGENTS.md` y `AGENTS.md`/`CLAUDE.md` de la raíz al cwd | hecho |
-| `self`: plugin_list, plugin_write, plugin_remove + guía para escribir plugins | hecho |
-| Skills | pendiente |
-| Compactación | pendiente |
-| Aprobaciones (hook + `DurableDeferred`) | pendiente |
-| Otros proveedores | pendiente |
+| Log de sesión en árbol (única fuente de verdad) | `core/Log.ts` |
+| Programa del agente: eventos, `evolve`, `decide`, vista para el modelo | `core/Agent.ts` |
+| Runtime: tick, ejecución de comandos, reacciones, bloqueo por base de datos, drenaje | `core/Runtime.ts` |
+| Log de configuración de plugins | `core/ConfigLog.ts` |
+| Gestor de plugins: incluidos + instalados, validación, hot/restart, protegidos | `core/Plugins.ts` |
+| `State` y `Composition`: registros que se reconstruyen | `core/State.ts` |
+| Registros: tools, modelos, prompt, hooks, tipos de evento, proyecciones, reacciones | `core/Registry.ts` |
+| `PluginHost` (load / replace / unload por `Scope`), `PluginLoader` (directorios) | `core/PluginHost.ts`, `core/PluginLoader.ts` |
+| Motor de workflows de Effect sobre la base de datos | `core/LogWorkflowEngine.ts` |
+| Eventos en vivo, abort en memoria, resolución de módulos, almacenamiento | `core/Events.ts`, `core/AbortSignals.ts`, `core/ModuleResolution.ts`, `core/Storage.ts` |
+| API pública y supervisor | `Pie.ts`, `Supervisor.ts` |
 
-`Pie.builtins` = opencode-go, system-prompt, context-files, coding-tools. `self`
-se carga solo si hay `pluginDirectories` (el primero es donde escribe el agente).
-Los plugins escritos por el agente pueden importar `effect` y `@pie/sdk` desde
-cualquier carpeta: `core/ModuleResolution.ts` los resuelve a las copias de Pie
-(hooks síncronos de Node, `module.registerHooks`).
+## Plugins
 
-## Garantías ya probadas
+| Plugin | Incluido por defecto | Qué hace |
+|---|---|---|
+| `opencode-go` | Sí | Modelos de OpenCode Go |
+| `system-prompt` | Sí | Prompt base y entorno de la sesión |
+| `context-files` | Sí | `~/.pie/AGENTS.md` y `AGENTS.md`/`CLAUDE.md` de la raíz al cwd |
+| `coding-tools` | Sí | read, write, edit, bash, grep, find, ls (parámetros y límites de pi) |
+| `self` | Sí, protegido | plugin_install, plugin_list, plugin_remove, plugin_enable, plugin_history, plugin_restore |
+| `todo` | No (ejemplo) | Lista de tareas como eventos, con proyección y vista |
 
-`packages/sdk/test/core.test.ts`:
+## Pendiente
 
-- Cada transformación se aplica exactamente una vez por reconstrucción y en orden estable.
-- Una transformación que lanza se salta y se informa; el resto se aplica.
-- Un plugin cuyo `setup` falla no deja nada registrado.
-- `replace` es atómico (un solo cambio observable), conserva la posición del
-  plugin y, si la versión nueva falla, la anterior sigue funcionando.
-- Al descargar un plugin se cierran sus finalizadores y fibras.
-- Desde archivos: alta, edición, error de sintaxis (se mantiene la versión
-  anterior) y borrado.
+Compactación, aprobaciones (el motor ya tiene `DurableDeferred`), skills,
+subagentes (workflows hijos), eventos de reintento visibles, Postgres,
+instantáneas de proyecciones.
 
-`packages/sdk/test/agent.test.ts` (motor en memoria, modelo falso):
+## Pruebas
 
-- prompt → tool → resultado → respuesta, todo guardado como entradas.
-- Un segundo prompt con un run activo falla; un followUp se absorbe en el mismo run.
-- steer se entrega después de las tools y antes de la siguiente llamada.
-- Tool inexistente y hook que deniega llegan al modelo como errores.
-- Automodificación: una tool instala un plugin y la siguiente llamada ya ofrece su tool.
-- abort corta una tool bloqueada y deja la sesión libre y reutilizable.
+| Archivo | Qué prueba |
+|---|---|
+| `test/core.test.ts` | `State`, `PluginHost`, carga desde archivos |
+| `test/agent.test.ts` | Bucle sobre el log: tools, busy, followUp, steer, nulls, ids repetidos, tool inexistente, hook que deniega, reintentos del modelo, abort; `todo` con bifurcación y adds paralelos; reacciones; automodificación (rechazo de plugin roto y de punto de política) |
+| `test/coding-tools.test.ts` | Las 7 tools y `AGENTS.md` |
+| `test/durability.test.ts` | SIGKILL con SQLite en un proceso real: sin repetir el modelo, tool idempotente repetida, no idempotente «outcome unknown» |
+| `test/self-modify.test.ts` | Proceso real, plugins fuera del repo, modos hot y restart con supervisor |
+| `test/workflow.test.ts` | Workflow de Effect con SIGKILL: actividades no repetidas, reloj que mantiene su hora, aprobación, resultado guardado |
+| `test/OpenCodeGo.live.test.ts` | Solo con `PIE_LIVE=1`: DeepSeek v4.1 Flash real |
 
-`packages/sdk/test/durability.test.ts` (SQLite, proceso real matado con SIGKILL):
-
-- El turno del LLM ya respondido no se vuelve a pedir.
-- La tool idempotente se vuelve a ejecutar; la no idempotente no, y el modelo
-  recibe «outcome unknown».
-- El run termina `completed` en el proceso nuevo.
-
-`packages/sdk/test/coding-tools.test.ts`: límites de read, write con directorios,
-edit único/ambiguo/inexistente y convergente al repetirse, bash (salida, código,
-timeout, muerte del grupo de procesos al interrumpir), grep/find/ls, AGENTS.md.
-
-`packages/sdk/test/self-modify.test.ts` (proceso Node real, plugins fuera del
-repo): un plugin roto se rechaza con su error, uno válido carga y su tool se usa
-en el mismo run.
-
-`packages/sdk/test/OpenCodeGo.live.test.ts` (solo con `PIE_LIVE=1`): DeepSeek
-v4.1 Flash recorre el bucle completo con una tool de un plugin.
-
-Diagramas: `docs/arquitectura.html` (fuentes Mermaid en `docs/diagramas/*.mmd`,
-regenerables con `mmdc -c docs/diagramas/mermaid-config.json`).
-
-Prueba manual en vivo con todos los plugins:
-`node --no-warnings packages/sdk/test/support/live-run.ts <cwd> "<prompt>"`.
-Probado con DeepSeek v4.1 Flash: se escribe un plugin `reverse_text` y lo usa;
-corrige un bug con read → edit → bash.
+Prueba manual: `node --no-warnings packages/sdk/test/support/live-run.ts <cwd> "<prompt>"`.

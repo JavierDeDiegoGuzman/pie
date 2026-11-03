@@ -10,8 +10,24 @@
  */
 import { Cause, Context, Data, Effect, Exit, FileSystem, Path, Ref, Scope, Semaphore } from "effect"
 import type { Plugin, PluginContext } from "./Plugin.ts"
-import { Registries } from "./Registry.ts"
+import { EventLog, type LogEvent } from "./Log.ts"
+import { type ProjectionDefinition, Registries } from "./Registry.ts"
 import { Composition, PluginId, PluginOrder } from "./State.ts"
+
+/** Folds a projection over a branch. Handlers that throw are skipped for that event. */
+export const foldProjection = <S>(definition: ProjectionDefinition<S>, events: ReadonlyArray<LogEvent>): S => {
+  let state = definition.initial()
+  for (const event of events) {
+    const handler = definition.on[event.type]
+    if (!handler) continue
+    try {
+      state = handler(state, event.data, event)
+    } catch {
+      // A version of the plugin that cannot read an old event skips it.
+    }
+  }
+  return state
+}
 
 export class PluginLoadError extends Data.TaggedError("PluginLoadError")<{
   readonly id: string
@@ -28,6 +44,11 @@ export interface LoadOptions {
   readonly order?: number | undefined
   /** Where it came from: "builtin:<name>" or a file path. Informational. */
   readonly source?: string | undefined
+  /**
+   * Untrusted plugins (installed by the agent) cannot use policy points:
+   * registering a "tool.before" hook fails their setup. Default: trusted.
+   */
+  readonly trusted?: boolean | undefined
 }
 
 export interface PluginInfo {
@@ -51,6 +72,7 @@ export class PluginHost extends Context.Service<PluginHost, {
     const composition = yield* Composition
     const registries = yield* Registries
     const services = yield* Effect.context<FileSystem.FileSystem | Path.Path>()
+    const logContext = yield* Effect.context<never>()
     const loaded = yield* Ref.make(new Map<string, Loaded>())
     const lock = yield* Semaphore.make(1)
     let nextOrder = 0
@@ -64,7 +86,30 @@ export class PluginHost extends Context.Service<PluginHost, {
           tools: registries.tools,
           models: registries.models,
           prompt: registries.prompt,
-          hook: (name, hook) => registries.hooks.transform((table) => void (table[name] as Array<typeof hook>).push(hook))
+          hook: (name, hook) =>
+            name === "tool.before" && options?.trusted === false
+              ? Effect.die(`"tool.before" is a policy point reserved for trusted plugins; use "tool.after", react or context instead`)
+              : registries.hooks.transform((table) => void (table[name] as Array<typeof hook>).push(hook)),
+          events: (schemas) =>
+            registries.eventTypes.transform((types) => {
+              for (const [name, schema] of Object.entries(schemas)) {
+                const type = `${plugin.id}/${name}`
+                types.set(type, { type, owner: plugin.id, schema })
+              }
+            }),
+          projection: (definition) =>
+            Effect.as(
+              registries.projections.transform((projections) => void projections.set(definition.id, definition)),
+              {
+                get: (sessionId, leafId) =>
+                  Effect.flatMap(Effect.serviceOption(EventLog), (log) =>
+                    log._tag === "None"
+                      ? Effect.die("projections need an EventLog (use Pie.layer)")
+                      : Effect.map(log.value.branch(sessionId, leafId), (events) => foldProjection(definition, events)))
+                    .pipe(Effect.provideContext(logContext))
+              }
+            ),
+          react: (definition) => registries.reactions.transform((reactions) => void reactions.set(definition.id, definition))
         }
         const exit = yield* Effect.suspend(() => plugin.setup(context)).pipe(
           Effect.provideService(Scope.Scope, scope),

@@ -33,18 +33,23 @@ describe("durability (SQLite, real process kill)", () => {
       encoding: "utf8",
       timeout: 40_000
     })
-    const { entries, outcome } = JSON.parse(output.trim().split("\n").pop()!)
+    const { events, outcome } = JSON.parse(output.trim().split("\n").pop()!)
 
-    expect(outcome).toEqual({ status: "completed" })
+    expect(outcome).toMatchObject({ status: "completed" })
     // turn 0 was answered before the crash and is not asked again; only turn 1 is new
     expect(lines().filter((l) => l === "llm")).toHaveLength(2)
     expect(lines().filter((l) => l === "write-start")).toHaveLength(1)
     expect(lines().filter((l) => l === "read-start")).toHaveLength(2)
 
-    const results = entries.filter((e: any) => e.kind === "toolResult").map((e: any) => e.data)
-    expect(results.find((r: any) => r.toolName === "read_file")).toMatchObject({ isError: false, content: "contents" })
-    expect(results.find((r: any) => r.toolName === "write_file")).toMatchObject({ isError: true })
-    expect(results.find((r: any) => r.toolName === "write_file").content).toContain("outcome is unknown")
-    expect(entries.map((e: any) => e.kind)).toEqual(["user", "assistant", "toolResult", "toolResult", "assistant", "runEnd"])
+    const results = events.filter((e: any) => e.type === "tool/finished").map((e: any) => e.data)
+    expect(results.find((r: any) => r.name === "read_file")).toMatchObject({ isError: false, content: "contents" })
+    expect(results.find((r: any) => r.name === "write_file")).toMatchObject({ isError: true })
+    expect(results.find((r: any) => r.name === "write_file").content).toContain("outcome is unknown")
+    const conversation = events.map((e: any) => e.type).filter((t: string) =>
+      ["user", "model/responded", "tool/finished", "run/ended"].includes(t)
+    )
+    expect(conversation).toEqual(["user", "model/responded", "tool/finished", "tool/finished", "model/responded", "run/ended"])
+    // both tools started before the crash; re-running the read reuses its event id, so no duplicates
+    expect(events.filter((e: any) => e.type === "tool/started")).toHaveLength(2)
   }, 60_000)
 })

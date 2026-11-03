@@ -28,6 +28,19 @@ export interface FileStatus {
 
 const PLUGIN_FILE = /\.(ts|mts|js|mjs)$/
 
+/** Imports a plugin module; the hash in the URL defeats Node's ESM cache. */
+export const importPluginModule = (file: string, hash: string) =>
+  Effect.tryPromise({
+    try: () => import(`${pathToFileURL(file).href}?v=${hash}`) as Promise<{ default?: unknown }>,
+    catch: (error) => error instanceof Error ? error.message : String(error)
+  }).pipe(
+    Effect.flatMap((module) =>
+      isPlugin(module.default)
+        ? Effect.succeed(module.default as Plugin)
+        : Effect.fail("default export is not a plugin (expected Plugin.define({ id, setup }))")
+    )
+  )
+
 export class PluginLoader extends Context.Service<PluginLoader, {
   readonly sync: (directory: string) => Effect.Effect<ReadonlyArray<FileStatus>>
   /** Syncs now and then on every change in the directory, for the lifetime of the scope. */
@@ -41,18 +54,7 @@ export class PluginLoader extends Context.Service<PluginLoader, {
     const files = yield* Ref.make(new Map<string, FileStatus>())
     const lock = yield* Semaphore.make(1)
 
-    const importPlugin = (file: string, hash: string) =>
-      Effect.tryPromise({
-        try: () => import(`${pathToFileURL(file).href}?v=${hash}`) as Promise<{ default?: unknown }>,
-        catch: (error) => error instanceof Error ? error.message : String(error)
-      }).pipe(
-        Effect.flatMap((module) =>
-          isPlugin(module.default)
-            ? Effect.succeed(module.default as Plugin)
-            : Effect.fail("default export is not a plugin (expected Plugin.define({ id, setup }))")
-        )
-      )
-
+    const importPlugin = importPluginModule
     const loadFile = (file: string, content: string) =>
       Effect.gen(function*() {
         const hash = createHash("sha256").update(content).digest("hex").slice(0, 16)

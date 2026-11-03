@@ -1,6 +1,6 @@
 flowchart LR
-  opt["Pie.layer({ storage })"] --> mem & lite & pg
-  mem["Storage.memory<br/>WorkflowEngine en memoria<br/>+ SQLite :memory:"] --> u1["tests · agentes efímeros"]
-  lite["Storage.sqlite(archivo)<br/>ClusterWorkflowEngine + SingleRunner"] --> u2["local · CLI · un proceso por archivo"]
-  pg["Postgres / MySQL (pendiente)<br/>mismo motor, otro cliente SQL"] --> u3["servidor · varios nodos"]
-  note["Regla: sesiones y motor en la misma base de datos"]
+  opt["Pie.layer({ storage, reload })"] --> mem & lite & pg
+  mem["Storage.memory<br/>SQLite :memory:"] --> u1["tests · agentes efímeros"]
+  lite["Storage.sqlite(archivo)<br/>bloqueo: un runtime por archivo"] --> u2["local · CLI · servidor de un proceso"]
+  pg["Postgres / MySQL (pendiente)"] --> u3["servidor"]
+  opt --> hot["reload: hot<br/>aplica en el proceso"] & rs["reload: restart<br/>Supervisor + exitOnRestart"]
