@@ -12,7 +12,8 @@ defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
 | Programa del agente: eventos, `evolve`, `decide`, vista para el modelo | `core/Agent.ts` |
 | Runtime: tick, ejecución de comandos, reacciones, bloqueo por base de datos, drenaje | `core/Runtime.ts` |
 | Log de configuración de plugins | `core/ConfigLog.ts` |
-| Gestor de plugins: incluidos + instalados, validación, hot/restart, protegidos | `core/Plugins.ts` |
+| Gestor de plugins: incluidos + instalados, validación, try/keep, rollback, modo seguro, obligatorios, hot/restart | `core/Plugins.ts` |
+| Recuperación sin plugins (CLI y supervisor) | `core/Recovery.ts`, `cli.ts` |
 | `State` y `Composition`: registros que se reconstruyen | `core/State.ts` |
 | Registros: tools, modelos, prompt, hooks, tipos de evento, proyecciones, reacciones | `core/Registry.ts` |
 | `PluginHost` (load / replace / unload por `Scope`), `PluginLoader` (directorios) | `core/PluginHost.ts`, `core/PluginLoader.ts` |
@@ -28,8 +29,14 @@ defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
 | `system-prompt` | Sí | Prompt base y entorno de la sesión |
 | `context-files` | Sí | `~/.pie/AGENTS.md` y `AGENTS.md`/`CLAUDE.md` de la raíz al cwd |
 | `coding-tools` | Sí | read, write, edit, bash, grep, find, ls (parámetros y límites de pi) |
-| `self` | Sí, protegido | plugin_install, plugin_list, plugin_remove, plugin_enable, plugin_history, plugin_restore |
-| `todo` | No (ejemplo) | Lista de tareas como eventos, con proyección y vista |
+| `self` | Sí | plugin_install, plugin_try, plugin_keep, plugin_explain, plugin_remove, plugin_enable, plugin_restore, plugin_rollback |
+| `todo` | No (lo usa `app.ts`) | Lista de tareas como eventos, con proyección, vista para el modelo y panel web |
+| `web` | No (lo usa `app.ts`) | Servidor local con token, API, SSE, página base con huecos y menú de recuperación, `web_inspect` |
+| `web-chat` | No (lo usa `app.ts`) | El chat de la interfaz web como módulo de UI |
+
+Nada está protegido por defecto: la red de seguridad es el rollback (ver
+`docs/EVENTOS.md`). App lista para usar: `pie serve --db pie.db --cwd .`
+(`src/app.ts` bajo `src/Supervisor.ts`); recuperación: `src/cli.ts`.
 
 ## Pendiente
 
@@ -46,6 +53,8 @@ instantáneas de proyecciones.
 | `test/coding-tools.test.ts` | Las 7 tools y `AGENTS.md` |
 | `test/durability.test.ts` | SIGKILL con SQLite en un proceso real: sin repetir el modelo, tool idempotente repetida, no idempotente «outcome unknown» |
 | `test/self-modify.test.ts` | Proceso real, plugins fuera del repo, modos hot y restart con supervisor |
+| `test/recovery.test.ts` | Rollback y deshacer el rollback, modo seguro, obligatorios, try/keep, reemplazar un plugin de serie; el supervisor revierte solo un plugin que tumba el arranque; la CLI ve y deshace |
+| `test/web.test.ts` | Token, API, prompt de punta a punta, SSE, proyecciones, instalar un plugin de UI y deshacerlo |
 | `test/workflow.test.ts` | Workflow de Effect con SIGKILL: actividades no repetidas, reloj que mantiene su hora, aprobación, resultado guardado |
 | `test/OpenCodeGo.live.test.ts` | Solo con `PIE_LIVE=1`: DeepSeek v4.1 Flash real |
 

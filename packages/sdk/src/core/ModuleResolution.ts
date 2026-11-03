@@ -35,7 +35,8 @@ export const register = (): void => {
       next: (specifier: string, context: unknown) => unknown
     ) => {
       const url = shared(specifier)
-      return url === undefined ? next(specifier, context) : { url, shortCircuit: true, format: "module" }
+      // No format: Node picks it (TypeScript for @pie/sdk, so its types are stripped).
+      return url === undefined ? next(specifier, context) : { url, shortCircuit: true }
     }
   })
 }

@@ -10,6 +10,11 @@
     "@effect/ai-openai-compat": "4.1.2",
     "@effect/platform-node": "4.1.2",
     "@effect/sql-sqlite-node": "4.1.2",
-    "effect": "4.1.2"
+    "effect": "4.1.2",
+    "htm": "^3.1.1",
+    "preact": "^11.1.1"
+  },
+  "bin": {
+    "pie": "./src/cli.ts"
   }
 }

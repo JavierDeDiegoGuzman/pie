@@ -77,18 +77,42 @@ eventos registran **hechos**, no valores calculados del estado: las tools de un
 mismo paso corren en paralelo, así que ids, contadores y totales se derivan en
 la proyección (el plugin `todo` es el ejemplo).
 
-## Automodificación (`core/Plugins.ts`, `plugins/self.ts`)
+## Automodificación y vuelta atrás (`core/Plugins.ts`, `plugins/self.ts`)
+
+Todo lo que está por encima del núcleo es modificable por el agente, incluidos
+los plugins de serie, `self` y la interfaz web. La red de seguridad no son las
+protecciones (no hay ninguna por defecto) sino poder volver atrás siempre.
 
 ```
-plugin_install(source) → validar en una composición desechable → evento plugin/installed (con el código)
-                       → aplicar: hot (en este proceso, visible en la siguiente llamada al modelo)
-                                  restart (drenar hasta un punto seguro → salir con 75 → el supervisor relanza)
+plugin_install(source) → validar en una composición desechable → plugin/installed (con el código)
+plugin_try(source)     → solo en este proceso; plugin_keep(id) lo hace permanente
+plugin_rollback(#n)    → config/reset: la composición de justo después del cambio #n (se puede deshacer)
 ```
 
-- La composición activa es el pliegue del log de configuración sobre los
-  plugins incluidos. Volver a cualquier versión es `plugin_restore`.
-- Los plugins del agente no son de confianza: no pueden usar puntos de política.
-- `self` está protegido: el agente no puede quitarlo ni sobrescribirlo.
+Formas de volver atrás, de más a menos automática:
+
+| Vía | Cómo | Depende de plugins |
+|---|---|---|
+| Automática | Tras arrancar bien un rato, o al completar un run, se añade `config/good`. Si el proceso se cae dos veces seguidas nada más arrancar, el supervisor vuelve a la última buena | No |
+| Interfaz web | Menú «Plugins y deshacer»: deshacer el último cambio, volver a la última buena o a cualquier punto; banner con «quitar» cuando un módulo de UI falla | Sí (el plugin `web`) |
+| Terminal | `pie explain --db …`, `pie rollback --db … --to N` o `--last-good` | No |
+| Modo seguro | `PIE_SAFE=1`: solo los plugins de serie, ignorando los cambios del agente | No |
+
+Opciones: `required` (plugins que deben cargar o el arranque falla, y el
+supervisor hace rollback), `protected` (ids que el agente no puede cambiar),
+`reload: "hot" | "restart"`.
+
+## Interfaz web (`plugins/web.ts`, `plugins/web-chat.ts`, `web/`)
+
+- El plugin `web` sirve en 127.0.0.1 con token: la página base (huecos
+  `header`, `sidebar`, `main`, `panel` y el menú de recuperación), el SDK del
+  navegador (`@pie/ui`), Preact + htm sin build, y la API con SSE.
+- Cada plugin aporta un módulo de navegador con `ctx.ui(fn)`; `fn` se serializa
+  y recibe el SDK. Cada módulo está aislado: si falla, la página lo dice y
+  ofrece quitarlo o deshacer. Los cambios llegan a la página en vivo.
+- El chat es otro plugin (`web-chat`) y el panel de tareas lo aporta `todo`.
+- El agente usa `web_inspect` antes de cambiar la UI.
+- `pie serve --db pie.db --cwd .` lanza la app bajo el supervisor.
 
 ## Workflows de Effect sobre la misma base de datos (`core/LogWorkflowEngine.ts`)
 
@@ -107,3 +131,7 @@ ejecuciones pendientes; un reloj mantiene su hora original tras un reinicio.
   sesiones muy largas harán falta instantáneas.
 - Recargar en caliente deja en memoria las versiones antiguas de los módulos
   (Node no descarga ESM); el modo `restart` no tiene ese problema.
+- Los módulos de UI no se validan antes de instalarse (no hay navegador en el
+  servidor): un error se ve en la página, que ofrece quitarlo o deshacer.
+- La interfaz web es para una persona en local: un módulo de UI tiene el mismo
+  poder que el agente.

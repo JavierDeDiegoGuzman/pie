@@ -11,7 +11,7 @@ import { randomUUID } from "node:crypto"
 import * as os from "node:os"
 import * as path from "node:path"
 import { NodeServices } from "@effect/platform-node"
-import { Context, Effect, Layer, type Scope, type Stream } from "effect"
+import { Context, Effect, Layer, type Scope, Stream } from "effect"
 import { AbortSignals } from "./core/AbortSignals.ts"
 import type * as Agent from "./core/Agent.ts"
 import { ConfigLog } from "./core/ConfigLog.ts"
@@ -21,7 +21,8 @@ import { EventLog, type LogEvent, type SessionInfo, type SessionNotFound } from 
 import * as LogWorkflowEngine from "./core/LogWorkflowEngine.ts"
 import * as ModuleResolution from "./core/ModuleResolution.ts"
 import type { Plugin } from "./core/Plugin.ts"
-import { PluginHost } from "./core/PluginHost.ts"
+import { foldProjection, PluginHost } from "./core/PluginHost.ts"
+import { Registries } from "./core/Registry.ts"
 import { PluginLoader } from "./core/PluginLoader.ts"
 import { type BuiltinEntry, Plugins } from "./core/Plugins.ts"
 import { Runtime, type SessionBusy } from "./core/Runtime.ts"
@@ -106,8 +107,14 @@ export interface LayerOptions {
   readonly pluginDirectories?: ReadonlyArray<string>
   /** Give the agent the plugin_* tools (self-modification). Default: true. */
   readonly selfModify?: boolean
-  /** Plugin ids the agent cannot remove, disable or overwrite. "self" is always protected. */
+  /** Plugin ids the agent cannot change. Default: none (rollback is the safety net). */
   readonly protected?: ReadonlyArray<string>
+  /** Plugin ids that must load, or the boot fails (the supervisor then rolls back). */
+  readonly required?: ReadonlyArray<string>
+  /** Built-ins only, ignoring agent changes. Default: PIE_SAFE=1. */
+  readonly safe?: boolean
+  /** Mark the composition good after this long running (ms), and after each completed run. Default 3000. */
+  readonly goodAfter?: number
   /**
    * How plugin changes apply. "hot": in this process, from the next model call.
    * "restart": drain to a safe point and exit with RESTART_EXIT_CODE (use with
@@ -124,24 +131,66 @@ export const builtins: ReadonlyArray<Plugin> = [OpenCodeGoPlugin, SystemPromptPl
 export const layer = (options: LayerOptions) => {
   ModuleResolution.register()
   const entries: ReadonlyArray<BuiltinEntry> = (options.plugins ?? builtins).map((p) => ("plugin" in p ? p : { plugin: p }))
+  // self is a regular built-in (replaceable, removable); it reaches the manager lazily.
+  let manager: Plugins["Service"] | undefined
+  const selfPlugin = SelfPlugin.make({
+    plugins: new Proxy({} as Plugins["Service"], { get: (_, key) => (manager as any)[key] })
+  })
 
-  const plugins = Layer.effect(Plugins, Plugins.make({
-    builtins: entries,
-    protected: new Set(["self", ...(options.protected ?? [])]),
+  const plugins = Layer.effect(Plugins, Effect.suspend(() => Plugins.make({
+    builtins: (options.selfModify ?? true) ? [...entries, { plugin: selfPlugin }] : entries,
+    protected: new Set(options.protected ?? []),
+    required: new Set(options.required ?? []),
+    safe: options.safe ?? process.env.PIE_SAFE === "1",
     cacheDirectory: options.pluginCacheDirectory ?? path.join(os.tmpdir(), "pie-plugin-cache"),
     reload: options.reload ?? "hot"
-  }))
+  })))
 
   const startup = Layer.effectDiscard(Effect.gen(function*() {
-    const host = yield* PluginHost
+    manager = yield* Plugins
     const loader = yield* PluginLoader
-    const manager = yield* Plugins
-    const config = yield* ConfigLog
-    if (options.selfModify ?? true) {
-      yield* host.load(SelfPlugin.make({ plugins: manager, host, config }), { source: "builtin:self", order: 500 }).pipe(Effect.orDie)
-    }
+    const events = yield* Events
     for (const directory of options.pluginDirectories ?? []) yield* loader.watch(directory)
     yield* (yield* Runtime).start
+    // The composition is "good" once it has been up for a while, and after each completed run.
+    const plugins = manager
+    yield* plugins.markGood.pipe(Effect.delay(options.goodAfter ?? 3000), Effect.forkScoped)
+    yield* events.stream().pipe(
+      Stream.filter((e) => e.type === "event" && e.event.type === "run/ended" && (e.event.data as Outcome).status === "completed"),
+      Stream.runForEach(() => plugins.markGood),
+      Effect.forkScoped
+    )
+  }))
+
+  // ctx.pie for plugins (the web UI is one); the plugin manager is reached lazily.
+  const api = Layer.effectDiscard(Effect.gen(function*() {
+    const host = yield* PluginHost
+    const log = yield* EventLog
+    const runtime = yield* Runtime
+    const events = yield* Events
+    const registries = yield* Registries
+    yield* host.setApi({
+      sessions: {
+        list: log.listSessions,
+        create: ({ cwd, model }) => log.createSession({ id: randomUUID(), cwd, model }),
+        events: (id) => log.branch(id),
+        state: runtime.state,
+        prompt: (id, text, mode = "prompt") =>
+          mode === "prompt" ? runtime.prompt(id, text) : runtime.enqueue(id, mode, text),
+        abort: runtime.abort,
+        navigate: runtime.navigate,
+        setModel: runtime.setModel
+      },
+      live: events.stream(),
+      projection: (projectionId, sessionId) =>
+        Effect.gen(function*() {
+          const definition = (yield* registries.projections.get).get(projectionId)
+          if (!definition) return undefined
+          return foldProjection(definition, yield* log.branch(sessionId))
+        }),
+      registries,
+      plugins: new Proxy({} as Plugins["Service"], { get: (_, key) => (manager as any)[key] })
+    })
   }))
 
   const base = Layer.mergeAll(
@@ -154,6 +203,7 @@ export const layer = (options: LayerOptions) => {
   return Layer.effect(Pie, make).pipe(
     Layer.provideMerge(startup),
     Layer.provideMerge(plugins),
+    Layer.provideMerge(api),
     Layer.provideMerge(LogWorkflowEngine.layer),
     Layer.provideMerge(Layer.effect(Runtime, Runtime.make)),
     Layer.provideMerge(Core.layer),

@@ -13,6 +13,10 @@ export interface ConfigEvents {
   readonly "plugin/removed": { readonly id: string }
   readonly "plugin/disabled": { readonly id: string }
   readonly "plugin/enabled": { readonly id: string }
+  /** Rollback: the composition becomes the one right after event `toSeq` (0 = only built-ins). */
+  readonly "config/reset": { readonly toSeq: number; readonly reason: string }
+  /** The composition as of `seq` booted and worked: the target of automatic rollbacks. */
+  readonly "config/good": { readonly seq: number }
 }
 
 export type ConfigEventType = keyof ConfigEvents
@@ -29,31 +33,55 @@ export interface ConfigState {
   readonly installed: ReadonlyMap<string, ConfigEvents["plugin/installed"] & { readonly seq: number }>
   /** Built-in or directory plugins switched off. */
   readonly disabled: ReadonlySet<string>
+  /** Seq of the last composition marked good (0 if none). */
+  readonly lastGood: number
+  /** Seq of the last event that changed the composition. */
+  readonly head: number
 }
 
-export const fold = (events: ReadonlyArray<ConfigEvent>): ConfigState => {
+export const fold = (events: ReadonlyArray<ConfigEvent>, upTo?: number): ConfigState => {
   const installed = new Map<string, ConfigEvents["plugin/installed"] & { readonly seq: number }>()
   const disabled = new Set<string>()
+  let lastGood = 0
+  let head = 0
   for (const event of events) {
+    if (upTo !== undefined && event.seq > upTo) break
     switch (event.type) {
       case "plugin/installed": {
         const data = event.data as ConfigEvents["plugin/installed"]
         installed.set(data.id, { ...data, seq: event.seq })
         disabled.delete(data.id)
+        head = event.seq
         break
       }
       case "plugin/removed":
         installed.delete((event.data as ConfigEvents["plugin/removed"]).id)
+        head = event.seq
         break
       case "plugin/disabled":
         disabled.add((event.data as ConfigEvents["plugin/disabled"]).id)
+        head = event.seq
         break
       case "plugin/enabled":
         disabled.delete((event.data as ConfigEvents["plugin/enabled"]).id)
+        head = event.seq
+        break
+      case "config/reset": {
+        // The composition of an earlier point, itself a fold (so resets of resets work).
+        const target = fold(events, (event.data as ConfigEvents["config/reset"]).toSeq)
+        installed.clear()
+        for (const [id, entry] of target.installed) installed.set(id, entry)
+        disabled.clear()
+        for (const id of target.disabled) disabled.add(id)
+        head = event.seq
+        break
+      }
+      case "config/good":
+        lastGood = (event.data as ConfigEvents["config/good"]).seq
         break
     }
   }
-  return { installed, disabled }
+  return { installed, disabled, lastGood, head }
 }
 
 export const hashSource = (source: string) => createHash("sha256").update(source).digest("hex").slice(0, 16)

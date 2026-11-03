@@ -168,6 +168,19 @@ export interface ReactionDefinition {
 }
 
 // ---------------------------------------------------------------------------
+// Browser modules (UI). A plugin contributes one module; the web plugin serves
+// it and the browser loads it into named slots.
+// ---------------------------------------------------------------------------
+
+export interface UiModule {
+  /** Owner plugin id. */
+  readonly id: string
+  /** ES module source; its default export receives the UI SDK. */
+  readonly source: string
+  readonly hash: string
+}
+
+// ---------------------------------------------------------------------------
 // Registries service
 // ---------------------------------------------------------------------------
 
@@ -179,6 +192,7 @@ export class Registries extends Context.Service<Registries, {
   readonly eventTypes: State<Map<string, EventTypeDefinition>>
   readonly projections: State<Map<string, ProjectionDefinition>>
   readonly reactions: State<Map<string, ReactionDefinition>>
+  readonly ui: State<Map<string, UiModule>>
 }>()("pie/Registries") {
   static readonly make = Effect.gen(function*() {
     const composition = yield* Composition
@@ -189,7 +203,8 @@ export class Registries extends Context.Service<Registries, {
       hooks: yield* composition.make({ name: "hooks", initial: emptyHooks }),
       eventTypes: yield* composition.make({ name: "eventTypes", initial: () => new Map<string, EventTypeDefinition>() }),
       projections: yield* composition.make({ name: "projections", initial: () => new Map<string, ProjectionDefinition>() }),
-      reactions: yield* composition.make({ name: "reactions", initial: () => new Map<string, ReactionDefinition>() })
+      reactions: yield* composition.make({ name: "reactions", initial: () => new Map<string, ReactionDefinition>() }),
+      ui: yield* composition.make({ name: "ui", initial: () => new Map<string, UiModule>() })
     })
   })
 }

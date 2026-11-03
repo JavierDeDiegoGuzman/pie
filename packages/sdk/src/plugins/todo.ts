@@ -92,6 +92,20 @@ export default Plugin.define({
         }))
       })
 
+      // The list in the web interface (right panel), and the events in the chat.
+      yield* ctx.ui((sdk: any) => {
+        const { html, ui, useProjection, useSession } = sdk
+        const Todos = () => {
+          const state = useProjection(useSession(), "todo")
+          if (!state || state.items.length === 0) return null
+          return html`<div><h3 style="margin:0 0 8px;font-size:13px">Tareas</h3>${
+            state.items.map((i: any) => html`<div style=${i.done ? "color:var(--muted);text-decoration:line-through" : ""}>#${i.id} ${i.text}</div>`)
+          }</div>`
+        }
+        ui.slot("panel", Todos)
+        ui.event("todo/added", ({ event }: any) => html`<div class="tool">+ tarea: ${event.data.text}</div>`)
+      })
+
       yield* ctx.hook("context", (event) =>
         Effect.map(todos.get(event.sessionId), (state) => {
           if (state.items.some((i) => !i.done)) event.system.push({ key: "todo", text: `Your todo list:\n${render(state)}` })

@@ -6,7 +6,12 @@
  * Nearly all behaviour of Pie lives in plugins, including the built-in ones,
  * so the agent can disable, replace or write them.
  */
-import type { Effect, FileSystem, Path, Schema, Scope } from "effect"
+import type { Effect, FileSystem, Path, Schema, Scope, Stream } from "effect"
+import type { AgentState } from "./Agent.ts"
+import type { PieEvent } from "./Events.ts"
+import type { LogEvent, SessionInfo, SessionNotFound } from "./Log.ts"
+import type { Plugins } from "./Plugins.ts"
+import type { SessionBusy } from "./Runtime.ts"
 import type {
   HookMap,
   HookName,
@@ -14,6 +19,7 @@ import type {
   ProjectionDefinition,
   PromptPart,
   ReactionDefinition,
+  Registries,
   ToolDefinition
 } from "./Registry.ts"
 import type { State } from "./State.ts"
@@ -36,6 +42,34 @@ export interface PluginContext {
   readonly projection: <S>(definition: ProjectionDefinition<S>) => Effect.Effect<Projection<S>, never, Scope.Scope>
   /** react: runs after matching events are in the log; survives restarts. */
   readonly react: (definition: ReactionDefinition) => Effect.Effect<void, never, Scope.Scope>
+  /**
+   * ui: this plugin's browser module, loaded by the web plugin into named
+   * slots. Pass a function `(sdk) => void` (serialized with toString, so it
+   * must not close over server variables) or the source of an ES module whose
+   * default export is such a function.
+   */
+  readonly ui: (module: ((sdk: any) => void) | string) => Effect.Effect<void, never, Scope.Scope>
+  /** Pie itself: sessions, live events, plugins, projections. For plugins like the web UI. */
+  readonly pie: PieApi
+}
+
+export interface PieApi {
+  readonly sessions: {
+    readonly list: Effect.Effect<ReadonlyArray<SessionInfo>>
+    readonly create: (options: { readonly cwd: string; readonly model: string }) => Effect.Effect<SessionInfo>
+    readonly events: (sessionId: string) => Effect.Effect<ReadonlyArray<LogEvent>>
+    readonly state: (sessionId: string) => Effect.Effect<AgentState, SessionNotFound>
+    readonly prompt: (sessionId: string, text: string, mode?: "prompt" | "steer" | "followUp") => Effect.Effect<void, SessionBusy | SessionNotFound>
+    readonly abort: (sessionId: string) => Effect.Effect<void, SessionNotFound>
+    readonly navigate: (sessionId: string, eventId: string | null) => Effect.Effect<void, SessionBusy | SessionNotFound>
+    readonly setModel: (sessionId: string, model: string) => Effect.Effect<void, SessionNotFound>
+  }
+  /** Every appended event plus streaming deltas. */
+  readonly live: Stream.Stream<PieEvent>
+  /** Current value of a registered projection for a session (undefined if no such projection). */
+  readonly projection: (projectionId: string, sessionId: string) => Effect.Effect<unknown>
+  readonly registries: Registries["Service"]
+  readonly plugins: Plugins["Service"]
 }
 
 export interface Projection<S> {

@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pie</title>
+<script type="importmap">
+{ "imports": {
+  "preact": "/vendor/preact.mjs",
+  "preact/hooks": "/vendor/preact-hooks.mjs",
+  "htm": "/vendor/htm.mjs",
+  "htm/preact": "/vendor/htm-preact.mjs",
+  "@pie/ui": "/ui.mjs"
+} }
+</script>
+<style>
+  :root { --bg:#0e0f12; --panel:#15171c; --line:#2a2d35; --fg:#e7e8ec; --muted:#9298a6; --accent:#7aa2ff; --danger:#ff6b6b; --ok:#5fd38d;
+          font-family: ui-sans-serif, system-ui, sans-serif; color-scheme: dark; }
+  * { box-sizing: border-box }
+  body { margin:0; background:var(--bg); color:var(--fg); font-size:14px }
+  button { font:inherit; color:inherit; background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer }
+  button:hover { border-color:var(--accent) }
+  input, textarea, select { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px }
+  .pie-app { display:grid; grid-template-rows:auto 1fr; height:100vh }
+  .pie-header { display:flex; align-items:center; gap:12px; padding:8px 14px; border-bottom:1px solid var(--line); background:var(--panel) }
+  .pie-header h1 { font-size:15px; margin:0 }
+  .pie-header .spacer { flex:1 }
+  .pie-body { display:grid; grid-template-columns:260px 1fr auto; min-height:0 }
+  .pie-sidebar, .pie-panel { border-right:1px solid var(--line); overflow:auto; padding:12px; min-width:0 }
+  .pie-panel { border-right:0; border-left:1px solid var(--line); max-width:340px }
+  .pie-panel:empty { display:none }
+  .pie-main { min-height:0; min-width:0; display:flex; flex-direction:column }
+  .pie-banner { background:#3a1d1d; border-bottom:1px solid var(--danger); padding:8px 14px; display:flex; gap:10px; align-items:center }
+  .pie-banner pre { margin:4px 0 0; white-space:pre-wrap; font-size:12px; color:#ffb3b3; max-height:120px; overflow:auto }
+  .pie-failed { color:var(--danger); font-size:12px; padding:6px; border:1px dashed var(--danger); border-radius:8px }
+  .pie-empty { color:var(--muted); padding:40px; text-align:center }
+  .pie-menu { position:absolute; right:14px; top:44px; background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:10px; width:420px; max-height:70vh; overflow:auto; z-index:10 }
+  .pie-menu li { margin:2px 0; font-size:12px; color:var(--muted) }
+  .pie-menu li b { color:var(--fg) }
+  .pie-nav-toggle { display:none }
+  @media (max-width: 800px) {
+    body { font-size:16px }
+    input, textarea, select, button { font-size:16px }
+    .pie-app { height:100dvh }
+    .pie-nav-toggle { display:inline-block }
+    .pie-body { grid-template-columns:1fr; position:relative }
+    .pie-sidebar { display:none; position:absolute; inset:0; z-index:5; background:var(--bg); border-right:0 }
+    .pie-app.nav-open .pie-sidebar { display:block }
+    .pie-panel { display:none }
+    .pie-app.panel-open .pie-panel { display:block; position:absolute; inset:0; z-index:5; background:var(--bg); max-width:none; border-left:0 }
+    .pie-menu { left:8px; right:8px; width:auto }
+  }
+</style>
+</head>
+<body>
+<div id="app"></div>
+<script type="module">
+import * as sdk from "@pie/ui"
+const { html, render, useState, useEffect, Slot, api, connect, onLive, registrar, clearOwner, reportError, useErrors } = sdk
+
+// Load each plugin's UI module; a module that fails is isolated and reported.
+const loaded = new Map() // owner -> hash
+async function loadModules(modules) {
+  for (const owner of [...loaded.keys()]) {
+    if (!modules.some((m) => m.id === owner)) { clearOwner(owner); loaded.delete(owner) }
+  }
+  for (const { id, hash } of modules) {
+    if (loaded.get(id) === hash) continue
+    clearOwner(id)
+    loaded.set(id, hash)
+    try {
+      const module = await import(`/ui/${encodeURIComponent(id)}.mjs?v=${hash}`)
+      await module.default(registrar(id))
+    } catch (error) {
+      reportError(id, error)
+    }
+  }
+}
+
+function Recovery({ onClose }) {
+  const [info, setInfo] = useState(null)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => { api.get("/api/plugins").then(setInfo) }, [])
+  const act = (path, body) => { setBusy(true); api.post(path, body).then(() => api.get("/api/plugins").then(setInfo)).finally(() => setBusy(false)) }
+  if (!info) return html`<div class="pie-menu">…</div>`
+  return html`<div class="pie-menu">
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <button disabled=${busy || info.head === 0} onClick=${() => act("/api/plugins/undo")}>Deshacer el último cambio</button>
+      <button disabled=${busy || info.head === info.lastGood} onClick=${() => act("/api/plugins/rollback", { toSeq: info.lastGood, reason: "web: back to last good" })}>Volver a la última buena (#${info.lastGood})</button>
+      <button onClick=${onClose}>Cerrar</button>
+    </div>
+    <div style="color:var(--muted);font-size:12px">Si la interfaz entera se rompe: <code>pie rollback --db … --last-good</code> o arranca con <code>PIE_SAFE=1</code>.</div>
+    <ul style="padding-left:16px">${[...info.history].reverse().map((h) => html`<li>
+      <b>#${h.seq}</b> ${h.type} ${h.id ?? ""} ${h.version ? "@" + h.version.slice(0, 7) : ""} ${h.note ?? ""}
+      ${h.seq < info.head && h.type !== "config/good" ? html` <a href="#" onClick=${(e) => { e.preventDefault(); act("/api/plugins/rollback", { toSeq: h.seq, reason: "web: rollback" }) }}>volver aquí</a>` : ""}
+    </li>`)}</ul>
+  </div>`
+}
+
+function App() {
+  const errors = useErrors()
+  const [menu, setMenu] = useState(false)
+  const [open, setOpen] = useState("") // phones: "nav" | "panel" | ""
+  const session = sdk.useSession()
+  useEffect(() => setOpen(""), [session])
+  const toggle = (what) => setOpen(open === what ? "" : what)
+  return html`<div class=${"pie-app" + (open ? ` ${open}-open` : "")}>
+    <div class="pie-header">
+      <button class="pie-nav-toggle" onClick=${() => toggle("nav")} aria-label="Sesiones">☰</button>
+      <h1>Pie</h1>
+      <${Slot} name="header" />
+      <span class="spacer"></span>
+      <button class="pie-nav-toggle" onClick=${() => toggle("panel")} aria-label="Panel">▤</button>
+      <button onClick=${() => setMenu(!menu)}>Plugins y deshacer</button>
+    </div>
+    <div style="display:flex;flex-direction:column;min-height:0">
+      ${errors.map(([owner, message]) => html`<div class="pie-banner">
+        <div style="flex:1"><b>El módulo de “${owner}” ha fallado.</b><pre>${message}</pre></div>
+        <button onClick=${() => api.post("/api/plugins/remove", { id: owner })}>Quitar ${owner}</button>
+        <button onClick=${() => api.post("/api/plugins/undo")}>Deshacer el último cambio</button>
+      </div>`)}
+      <div class="pie-body" style="flex:1;min-height:0">
+        <div class="pie-sidebar"><${Slot} name="sidebar" /></div>
+        <div class="pie-main"><${Slot} name="main" fallback=${html`<div class="pie-empty">Ningún plugin ocupa el hueco “main”. Usa “Plugins y deshacer”.</div>`} /></div>
+        <div class="pie-panel"><${Slot} name="panel" /></div>
+      </div>
+    </div>
+    ${menu ? html`<${Recovery} onClose=${() => setMenu(false)} />` : ""}
+  </div>`
+}
+
+connect()
+onLive((type, data) => { if (type === "ui") loadModules(data) })
+api.get("/api/state").then((state) => loadModules(state.ui)).catch((e) => reportError("web", e))
+render(html`<${App} />`, document.getElementById("app"))
+</script>
+</body>
+</html>

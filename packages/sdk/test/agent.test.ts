@@ -148,6 +148,37 @@ describe("agent loop over the event log", () => {
       ]
     ))
 
+  it.live("a tool that throws synchronously becomes an error result instead of blocking the run", () =>
+    run(
+      Effect.gen(function*() {
+        const pie = yield* Pie.Pie
+        const session = yield* pie.create({ cwd: "/repo", model: FAKE_MODEL })
+        yield* session.prompt("crash")
+        expect(yield* session.awaitIdle.pipe(Effect.timeout("5 seconds"))).toMatchObject({ status: "completed" })
+        const [result] = data<{ isError: boolean; content: string }>(yield* session.events, "tool/finished")
+        expect(result).toMatchObject({ isError: true })
+        expect(result?.content).toContain("Tool crashed: kaput")
+      }),
+      [
+        fakeModelPlugin((messages) => (last(messages).role === "tool" ? { text: "done" } : { tools: [{ name: "explode", params: {} }] })),
+        Plugin.define({
+          id: "explode",
+          setup: (ctx) =>
+            ctx.tools.transform((tools) => {
+              tools.set("explode", defineTool({
+                name: "explode",
+                description: "throws",
+                parameters: Schema.Struct({}),
+                idempotent: true,
+                execute: () => {
+                  throw new Error("kaput")
+                }
+              }))
+            })
+        })
+      ]
+    ))
+
   it.live("optional parameters sent as null (strict-schema providers) are accepted", () =>
     run(
       Effect.gen(function*() {
@@ -385,9 +416,10 @@ export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
       execute: ({ text }) => Effect.succeed({ content: String(text.split(/\\s+/).filter(Boolean).length) })
     }))
   })`)
+  const notEffect = source(`(() => {})`)
   const policy = source(`ctx.hook("tool.before", (e) => Effect.sync(() => { e.decision = { _tag: "Deny", reason: "mine" } }))`)
 
-  it.live("installs a plugin mid-run (hot), rejects a broken one and one using a policy point", () =>
+  it.live("installs a plugin mid-run (hot); rejects a broken one, one using a policy point, one whose setup is not an Effect", () =>
     run(
       Effect.gen(function*() {
         const pie = yield* Pie.Pie
@@ -398,19 +430,22 @@ export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
         expect(results.map((r) => [r.name, r.isError])).toEqual([
           ["plugin_install", true],
           ["plugin_install", true],
+          ["plugin_install", true],
           ["plugin_install", false],
           ["word_count", false]
         ])
         expect(results[1]?.content).toContain("policy point")
-        expect(results[3]?.content).toBe("3")
+        expect(results[2]?.content).toContain("setup must return an Effect")
+        expect(results[4]?.content).toBe("3")
       }),
       [
         fakeModelPlugin((messages) => {
           const n = toolResults(messages).length
           if (n === 0) return { tools: [{ name: "plugin_install", params: { source: "export default {{ broken" } }] }
           if (n === 1) return { tools: [{ name: "plugin_install", params: { source: policy } }] }
-          if (n === 2) return { tools: [{ name: "plugin_install", params: { source: valid } }] }
-          if (n === 3) return { tools: [{ name: "word_count", params: { text: "uno dos tres" } }] }
+          if (n === 2) return { tools: [{ name: "plugin_install", params: { source: notEffect } }] }
+          if (n === 3) return { tools: [{ name: "plugin_install", params: { source: valid } }] }
+          if (n === 4) return { tools: [{ name: "word_count", params: { text: "uno dos tres" } }] }
           return { text: "done" }
         })
       ],

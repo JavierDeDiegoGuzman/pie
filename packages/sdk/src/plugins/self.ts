@@ -1,20 +1,21 @@
 /**
  * Built-in plugin: lets the agent extend itself through the configuration log.
  *
- *   plugin_install  validate + install (or update) a plugin from its source
- *   plugin_list     what is loaded, what the agent installed, what is disabled
- *   plugin_remove   remove an installed plugin or disable a built-in one
- *   plugin_enable   re-enable a disabled plugin
- *   plugin_history  versions of a plugin in the configuration log
- *   plugin_restore  go back to an earlier version
+ *   plugin_install   validate + install (or update) a plugin from its source
+ *   plugin_try/keep  load in this process only; make it permanent
+ *   plugin_explain   what is loaded, from where, and the history of changes
+ *   plugin_remove    remove an installed plugin or disable a built-in one
+ *   plugin_enable    re-enable a disabled plugin
+ *   plugin_restore   one plugin back to an earlier version
+ *   plugin_rollback  the whole configuration back to an earlier point
  *
- * Every change is an event in the configuration log. Protected plugins
- * (this one, by default) cannot be removed or overwritten.
+ * Every change is an event in the configuration log. Nothing is protected by
+ * default, this plugin included: the safety net is rollback (also from the
+ * terminal with `pie rollback`, and automatic when a change stops Pie from
+ * booting).
  */
 import { Effect, Schema } from "effect"
-import type { ConfigLog } from "../core/ConfigLog.ts"
 import * as Plugin from "../core/Plugin.ts"
-import type { PluginHost } from "../core/PluginHost.ts"
 import type { Plugins } from "../core/Plugins.ts"
 import { defineTool } from "../core/Registry.ts"
 
@@ -55,20 +56,20 @@ export default Plugin.define({
 Events record facts, not values computed from the current state: tool calls of one step run in parallel,
 so derive ids, counters and totals in the projection instead of reading the state and emitting the result.
 
+Everything is modifiable, built-ins included: installing a plugin with a built-in's id replaces it. Prefer
+plugin_try for experiments and plugin_keep once it works; plugin_rollback undoes any change.
+
 Also available: ctx.prompt.transform((parts) => parts.push({ key, text })) for fixed system prompt text;
 ctx.react({ id, on: ["tool/finished"], run: (event, r) => Effect }) to act after events (never blocks the agent);
 ctx.hook("tool.before" | "tool.after", ...) is reserved for protected plugins' policy and may be denied to you.`
 
-export const make = (options: {
-  readonly plugins: Plugins["Service"]
-  readonly host: PluginHost["Service"]
-  readonly config: ConfigLog["Service"]
-}) => {
-  const { config, host, plugins } = options
+export const make = (options: { readonly plugins: Plugins["Service"] }) => {
+  const { plugins } = options
   const rejected = (e: { readonly message: string }) => Effect.succeed({ content: e.message, isError: true })
-  const later = plugins.reload === "hot"
-    ? "It is active from your next step."
-    : "It becomes active after a restart, which happens automatically when this step finishes."
+  const later = () =>
+    plugins.reload === "hot"
+      ? "It is active from your next step."
+      : "It becomes active after a restart, which happens automatically when this step finishes."
 
   const install = defineTool({
     name: "plugin_install",
@@ -78,37 +79,49 @@ export const make = (options: {
     idempotent: true,
     execute: ({ source }) =>
       plugins.install(source).pipe(
-        Effect.map(({ hash, id }) => ({ content: `Plugin "${id}" installed (version ${hash}). ${later}` })),
+        Effect.map(({ hash, id }) => ({ content: `Plugin "${id}" installed (version ${hash}). ${later()}` })),
         Effect.catchTag("PluginRejected", (e) => rejected({ message: `Plugin rejected: ${e.message}` }))
       )
   })
 
-  const list = defineTool({
-    name: "plugin_list",
-    description: "List loaded plugins, plugins you installed (with their version) and disabled plugins.",
+  const tryTool = defineTool({
+    name: "plugin_try",
+    description: "Validate and load a plugin in this process only, without making it permanent. Use plugin_keep to persist it; " +
+      "a restart or plugin_remove discards it.",
+    parameters: Schema.Struct({ source: Schema.String.annotate({ description: "Full TypeScript source of the plugin module" }) }),
+    idempotent: true,
+    execute: ({ source }) =>
+      plugins.try(source).pipe(
+        Effect.map(({ hash, id }) => ({ content: `Plugin "${id}" loaded for trial (version ${hash}). It is active from your next step.` })),
+        Effect.catchTag("PluginRejected", (e) => rejected({ message: `Plugin rejected: ${e.message}` }))
+      )
+  })
+
+  const keep = defineTool({
+    name: "plugin_keep",
+    description: "Make a plugin you are trying (plugin_try) permanent.",
+    parameters: Schema.Struct({ id: Schema.String }),
+    idempotent: true,
+    execute: ({ id }) =>
+      plugins.keep(id).pipe(Effect.as({ content: `Plugin "${id}" is now permanent.` }), Effect.catchTag("PluginRejected", rejected))
+  })
+
+  const explain = defineTool({
+    name: "plugin_explain",
+    description: "What is loaded and where each plugin comes from (built-in, installed, trial), what is disabled, and the " +
+      "history of configuration changes with their numbers (use them with plugin_rollback).",
     parameters: Schema.Struct({}),
     idempotent: true,
-    execute: () =>
-      Effect.gen(function*() {
-        const loaded = yield* host.list
-        const state = yield* plugins.config
-        return {
-          content: JSON.stringify({
-            loaded: loaded.map((p) => ({ id: p.id, source: p.source })),
-            installed: [...state.installed.values()].map(({ hash, id }) => ({ id, version: hash })),
-            disabled: [...state.disabled]
-          }, null, 2)
-        }
-      })
+    execute: () => Effect.map(plugins.explain, (e) => ({ content: JSON.stringify(e, null, 2) }))
   })
 
   const remove = defineTool({
     name: "plugin_remove",
-    description: "Remove a plugin you installed, or disable a built-in one.",
+    description: "Remove a plugin you installed or are trying, or disable a built-in one.",
     parameters: Schema.Struct({ id: Schema.String }),
     idempotent: true,
     execute: ({ id }) =>
-      plugins.remove(id).pipe(Effect.as({ content: `Plugin "${id}" removed. ${later}` }), Effect.catchTag("PluginRejected", rejected))
+      plugins.remove(id).pipe(Effect.as({ content: `Plugin "${id}" removed. ${later()}` }), Effect.catchTag("PluginRejected", rejected))
   })
 
   const enable = defineTool({
@@ -117,31 +130,30 @@ export const make = (options: {
     parameters: Schema.Struct({ id: Schema.String }),
     idempotent: true,
     execute: ({ id }) =>
-      plugins.enable(id).pipe(Effect.as({ content: `Plugin "${id}" enabled. ${later}` }), Effect.catchTag("PluginRejected", rejected))
-  })
-
-  const history = defineTool({
-    name: "plugin_history",
-    description: "Versions of a plugin in the configuration log, oldest first.",
-    parameters: Schema.Struct({ id: Schema.String }),
-    idempotent: true,
-    execute: ({ id }) =>
-      Effect.gen(function*() {
-        const versions = (yield* config.history)
-          .filter((e) => (e.data as { id: string }).id === id)
-          .map((e) => ({ seq: e.seq, type: e.type, at: new Date(e.createdAt).toISOString(), version: (e.data as { hash?: string }).hash }))
-        return { content: versions.length === 0 ? `No history for "${id}".` : JSON.stringify(versions, null, 2) }
-      })
+      plugins.enable(id).pipe(Effect.as({ content: `Plugin "${id}" enabled. ${later()}` }), Effect.catchTag("PluginRejected", rejected))
   })
 
   const restore = defineTool({
     name: "plugin_restore",
-    description: "Reinstall an earlier version of a plugin (see plugin_history).",
+    description: "Reinstall an earlier version of one plugin (versions in plugin_explain).",
     parameters: Schema.Struct({ id: Schema.String, version: Schema.String }),
     idempotent: true,
     execute: ({ id, version }) =>
       plugins.restore(id, version).pipe(
-        Effect.as({ content: `Plugin "${id}" restored to version ${version}. ${later}` }),
+        Effect.as({ content: `Plugin "${id}" restored to version ${version}. ${later()}` }),
+        Effect.catchTag("PluginRejected", rejected)
+      )
+  })
+
+  const rollback = defineTool({
+    name: "plugin_rollback",
+    description: "Put the whole plugin configuration back to how it was right after change #toSeq (0: built-ins only). " +
+      "It is recorded as a change too, so it can be undone.",
+    parameters: Schema.Struct({ toSeq: Schema.Int, reason: Schema.String }),
+    idempotent: true,
+    execute: ({ reason, toSeq }) =>
+      plugins.rollback(toSeq, reason).pipe(
+        Effect.as({ content: `Configuration rolled back to #${toSeq}. ${later()}` }),
         Effect.catchTag("PluginRejected", rejected)
       )
   })
@@ -151,7 +163,7 @@ export const make = (options: {
     setup: (ctx) =>
       Effect.gen(function*() {
         yield* ctx.tools.transform((tools) => {
-          for (const tool of [install, list, remove, enable, history, restore]) tools.set(tool.name, tool)
+          for (const tool of [install, tryTool, keep, explain, remove, enable, restore, rollback]) tools.set(tool.name, tool)
         })
         yield* ctx.prompt.transform((parts) => void parts.push({ key: "self/guide", text: GUIDE }))
       })

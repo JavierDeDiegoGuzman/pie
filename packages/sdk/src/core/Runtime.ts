@@ -367,6 +367,37 @@ export class Runtime extends Context.Service<Runtime, {
       }
     }
 
+    /**
+     * Every command must leave a trace, or the tick would decide the same thing
+     * again at once. A crashed tool becomes an error result, a crashed model
+     * call a model/failed (retried with backoff); anything else is retried with
+     * backoff instead of in a tight loop.
+     */
+    const failures = new Map<string, { readonly count: number; readonly retryAt: number }>()
+    const settleFailure = (sessionId: string, command: Agent.Command, cause: Cause.Cause<unknown>) =>
+      Effect.gen(function*() {
+        const message = errorMessage(cause)
+        yield* Effect.logError(`pie: command ${command.key} failed`, Cause.pretty(cause))
+        if (command._tag === "RunTool") {
+          return yield* Effect.ignore(append(sessionId, {
+            id: `${command.runId}/t${command.turn}/${command.call.id}/finished`,
+            type: "tool/finished",
+            data: { toolCallId: command.call.id, name: command.call.name, content: `Tool crashed: ${message}`, isError: true }
+          }))
+        }
+        if (command._tag === "CallModel") {
+          return yield* Effect.ignore(append(sessionId, {
+            id: `${command.callId}/failed/${command.attempt}`,
+            type: "model/failed",
+            data: { callId: command.callId, attempt: command.attempt, message, retryAt: Date.now() + 1000 * 2 ** (command.attempt - 1) }
+          }))
+        }
+        const count = (failures.get(command.key)?.count ?? 0) + 1
+        const delay = Math.min(30_000, 500 * 2 ** (count - 1))
+        failures.set(command.key, { count, retryAt: Date.now() + delay })
+        yield* Effect.sync(() => wake(sessionId)).pipe(Effect.delay(delay), FiberSet.run(fibers))
+      })
+
     const tickOnce = (sessionId: string) =>
       Effect.gen(function*() {
         if (draining || !started) return
@@ -388,10 +419,13 @@ export class Runtime extends Context.Service<Runtime, {
             continue
           }
           if (keys.has(command.key)) continue
+          const failure = failures.get(command.key)
+          if (failure && Date.now() < failure.retryAt) continue
           keys.add(command.key)
           const owned = keys
           yield* execute(sessionId, command).pipe(
-            Effect.catchCause((cause) => Effect.logError(`pie: command ${command.key} failed`, Cause.pretty(cause))),
+            Effect.tap(() => Effect.sync(() => failures.delete(command.key))),
+            Effect.catchCause((cause) => settleFailure(sessionId, command, cause)),
             Effect.ensuring(Effect.sync(() => {
               owned.delete(command.key)
               wake(sessionId)
