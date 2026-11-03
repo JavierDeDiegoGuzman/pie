@@ -46,6 +46,63 @@ export interface Options {
   readonly apiKey?: Redacted.Redacted<string> | undefined
 }
 
+/**
+ * Some backends behind OpenCode Go send tool-call continuation fragments as
+ * `{"index":0,"id":null,"type":null,"function":{"name":null,"arguments":"…"}}`.
+ * `@effect/ai-openai-compat` accepts a null `id` and `name` but not a null
+ * `type`, so it drops the whole chunk and the call arrives with no arguments.
+ * Removing null fields from tool-call deltas keeps every fragment.
+ */
+export const normalizeChunk = (json: string): string => {
+  if (!json.includes('"tool_calls"')) return json
+  let chunk: { choices?: Array<{ delta?: { tool_calls?: Array<Record<string, unknown>> | null } }> }
+  try {
+    chunk = JSON.parse(json)
+  } catch {
+    return json
+  }
+  const dropNulls = (o: Record<string, unknown>) => {
+    for (const k of Object.keys(o)) if (o[k] === null) delete o[k]
+  }
+  for (const choice of chunk.choices ?? []) {
+    for (const call of choice.delta?.tool_calls ?? []) {
+      dropNulls(call)
+      if (call.function && typeof call.function === "object") dropNulls(call.function as Record<string, unknown>)
+    }
+  }
+  return JSON.stringify(chunk)
+}
+
+/** Rewrites each `data: …` line of a server-sent-events body with `normalizeChunk`. */
+const normalizeSse = (body: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> => {
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let pending = ""
+  const line = (l: string) => l.startsWith("data: ") && l !== "data: [DONE]" ? `data: ${normalizeChunk(l.slice(6))}` : l
+  return body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(bytes, controller) {
+      pending += decoder.decode(bytes, { stream: true })
+      const lines = pending.split("\n")
+      pending = lines.pop()!
+      if (lines.length > 0) controller.enqueue(encoder.encode(lines.map(line).join("\n") + "\n"))
+    },
+    flush(controller) {
+      pending += decoder.decode()
+      if (pending.length > 0) controller.enqueue(encoder.encode(line(pending)))
+    }
+  }))
+}
+
+const normalizingFetch: typeof globalThis.fetch = async (input, init) => {
+  const response = await globalThis.fetch(input, init)
+  if (!response.body || !(response.headers.get("content-type") ?? "").includes("text/event-stream")) return response
+  return new Response(normalizeSse(response.body), {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers
+  })
+}
+
 export const clientLayer = (options: Options) =>
   Layer.unwrap(Effect.gen(function*() {
     const key = options.apiKey ?? (yield* apiKey)
@@ -57,7 +114,10 @@ export const clientLayer = (options: Options) =>
         "x-opencode-session": options.sessionId
       }))
     })
-  })).pipe(Layer.provide(FetchHttpClient.layer))
+  })).pipe(
+    Layer.provide(FetchHttpClient.layer),
+    Layer.provide(Layer.succeed(FetchHttpClient.Fetch, normalizingFetch))
+  )
 
 export const languageModel = (
   options: Options & { readonly model?: string | undefined }
