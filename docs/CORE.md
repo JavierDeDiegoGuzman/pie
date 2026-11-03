@@ -52,12 +52,12 @@ instantáneas de proyecciones.
 | Archivo | Qué prueba |
 |---|---|
 | `test/core.test.ts` | `State`, `PluginHost`, carga desde archivos |
-| `test/agent.test.ts` | Bucle sobre el log: tools, busy, followUp, steer, nulls, ids repetidos, tool inexistente, hook que deniega, reintentos del modelo, abort; `todo` con bifurcación y adds paralelos; reacciones; automodificación (rechazo de plugin roto y de punto de política) |
+| `test/agent.test.ts` | Bucle sobre el log: tools, busy, followUp, steer, nulls, ids repetidos, tool inexistente, hook que deniega, reintentos del modelo, abort; `todo` con bifurcación y adds paralelos; reacciones; automodificación (editar la carpeta + `restart`, rechazo de plugin roto, escritura en el SDK denegada) |
 | `test/coding-tools.test.ts` | Las 7 tools y `AGENTS.md` |
 | `test/durability.test.ts` | SIGKILL con SQLite en un proceso real: sin repetir el modelo, tool idempotente repetida, no idempotente «outcome unknown» |
 | `test/self-modify.test.ts` | Proceso real, plugins fuera del repo, modos hot y restart con supervisor |
-| `test/recovery.test.ts` | Rollback y deshacer el rollback, modo seguro, obligatorios, try/keep, reemplazar un plugin de serie; el supervisor revierte solo un plugin que tumba el arranque; la CLI ve y deshace |
-| `test/web.test.ts` | Token, API, prompt de punta a punta, SSE, proyecciones, instalar un plugin de UI y deshacerlo |
+| `test/recovery.test.ts` | Instantáneas, rollback y deshacerlo, modo seguro, obligatorios, cambios hechos con Pie apagado; el supervisor revierte solo un plugin que tumba el arranque; la CLI ve y deshace |
+| `test/web.test.ts` | Token, API, prompt de punta a punta, SSE, proyecciones, añadir un plugin de UI, editar `web/shell.html`, y deshacer ambos |
 | `test/workflow.test.ts` | Workflow de Effect con SIGKILL: actividades no repetidas, reloj que mantiene su hora, aprobación, resultado guardado |
 | `test/OpenCodeGo.live.test.ts` | Solo con `PIE_LIVE=1`: DeepSeek v4.1 Flash real |
 

@@ -8,7 +8,7 @@ ellos. Diagramas en `docs/arquitectura.html`.
 | Log | Tabla | Qué guarda | Forma |
 |---|---|---|---|
 | Sesión | `pie_events` | Todo lo que pasa en una sesión: núcleo y plugins | Árbol; la rama actual va de la raíz a `leaf_id` |
-| Configuración | `pie_config` | Plugins instalados por el agente (con su código), quitados, desactivados, reactivados | Lineal |
+| Configuración | `pie_config` | Instantáneas de la carpeta de plugins (`plugins/snapshot`) y marcas de configuración buena (`config/good`) | Lineal |
 
 Cada evento tiene un id determinista y se añade de forma idempotente: repetir un
 paso tras un reinicio nunca duplica nada.
@@ -115,7 +115,7 @@ registran como una instantánea nueva, así que también se pueden deshacer):
 
 Los cambios hechos a mano con Pie apagado se registran al arrancar.
 
-## Interfaz web (`plugins/web.ts`, `plugins/web-chat.ts`, `web/`)
+## Interfaz web (plugins `web` y `web-chat`)
 
 - El plugin `web` sirve en 127.0.0.1 con token: la página base (huecos
   `header`, `sidebar`, `main`, `panel` y el menú de recuperación), el SDK del
