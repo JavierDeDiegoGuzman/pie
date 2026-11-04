@@ -1,12 +1,16 @@
 {
-  "name": "pie",
+  "name": "pie-monorepo",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.1.2",
-  "engines": { "node": ">=22.16.0" },
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "scripts": {
     "check": "tsc -b --pretty false",
-    "test": "vitest run"
+    "test": "vitest run",
+    "build": "tsc -b",
+    "pack:smoke": "node --no-warnings scripts/smoke.ts"
   },
   "devDependencies": {
     "@effect/vitest": "4.1.2",

@@ -10,7 +10,7 @@ import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
 import * as fs from "node:fs"
 import * as path from "node:path"
-// Deliberately not "../../src/index.ts": the plugin must load @pie/sdk for the
+// Deliberately not "../../src/index.ts": the plugin must load pie-agent for the
 // first time through Pie's module resolver (TypeScript stripped).
 import * as Pie from "../../src/Pie.ts"
 import { Plugins } from "../../src/core/Plugins.ts"
@@ -19,7 +19,7 @@ const [home, out] = process.argv.slice(2) as [string, string]
 fs.appendFileSync(`${out}.starts`, "start\n")
 
 const BOMB = `import { Effect } from "effect"
-import { Plugin } from "@pie/sdk"
+import { Plugin } from "pie-agent"
 export default Plugin.define({
   id: "bomb",
   setup: () => Effect.sync(() => void setTimeout(() => { throw new Error("boom") }, 100))

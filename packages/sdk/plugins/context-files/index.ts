@@ -8,7 +8,7 @@ import * as fs from "node:fs/promises"
 import * as os from "node:os"
 import * as path from "node:path"
 import { Effect } from "effect"
-import { Plugin } from "@pie/sdk"
+import { Plugin } from "pie-agent"
 
 const NAMES = ["AGENTS.md", "CLAUDE.md"]
 

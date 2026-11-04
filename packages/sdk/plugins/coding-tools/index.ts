@@ -17,7 +17,7 @@ import { spawn } from "node:child_process"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
 import { Effect, Schema } from "effect"
-import { Plugin, type ToolOutput, defineTool } from "@pie/sdk"
+import { Plugin, type ToolOutput, defineTool } from "pie-agent"
 
 export const MAX_LINES = 2000
 /** Seconds; a command that never ends (e.g. find /) would otherwise block the run forever. */

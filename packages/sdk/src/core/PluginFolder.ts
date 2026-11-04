@@ -4,13 +4,13 @@
  * edits it with ordinary tools (read, edit, write) and applies it with the
  * restart tool. Pure file operations, no plugin is loaded here.
  */
+import * as Package from "./Package.ts"
 import * as fs from "node:fs/promises"
 import * as path from "node:path"
-import { fileURLToPath } from "node:url"
 import type { Files } from "./ConfigLog.ts"
 
 /** The plugin templates shipped with the SDK (copied into a new home). */
-export const TEMPLATES = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "plugins")
+export const TEMPLATES = Package.TEMPLATES
 
 export const MANIFEST = "plugins.json"
 

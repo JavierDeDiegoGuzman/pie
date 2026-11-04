@@ -15,7 +15,7 @@
  * log, so installing it again brings the list back.
  */
 import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from "@pie/sdk"
+import { Plugin, defineTool } from "pie-agent"
 
 export interface Item {
   readonly id: number

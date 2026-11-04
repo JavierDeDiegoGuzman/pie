@@ -2,7 +2,7 @@
 
 A plugin is a folder in the plugins folder (`<home>/plugins/<id>/`) with an
 `index.ts` whose default export is `Plugin.define({ id, setup })`. The id must
-equal the folder name. `index.ts` imports only `"effect"`, `"@pie/sdk"` and
+equal the folder name. `index.ts` imports only `"effect"`, `"pie-agent"` and
 Node built-ins. Edit the files: Pie applies them before your next step (or tells
 you why it could not).
 
@@ -29,7 +29,7 @@ the log.
 
 ```ts
 import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from "@pie/sdk"
+import { Plugin, defineTool } from "pie-agent"
 
 export default Plugin.define({
   id: "notes", // must equal the folder name

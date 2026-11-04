@@ -9,7 +9,7 @@ import * as Recovery from "../src/core/Recovery.ts"
 import { testHome } from "./support/home.ts"
 
 const plugin = (id: string, tool: string) => `import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from "@pie/sdk"
+import { Plugin, defineTool } from "pie-agent"
 export default Plugin.define({ id: ${JSON.stringify(id)}, setup: (ctx) => ctx.tools.transform((t) => {
   t.set(${JSON.stringify(tool)}, defineTool({ name: ${JSON.stringify(tool)}, description: "x", parameters: Schema.Struct({}),
     idempotent: true, execute: () => Effect.succeed({ content: ${JSON.stringify(tool)} }) }))

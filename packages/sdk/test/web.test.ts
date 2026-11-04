@@ -27,7 +27,7 @@ const page = () =>
   })
 
 const uiPlugin = `
-import { Plugin } from "@pie/sdk"
+import { Plugin } from "pie-agent"
 export default Plugin.define({ id: "status-badge", setup: (ctx) => ctx.ui(({ html, ui }) => ui.slot("header", () => html\`<b>ok</b>\`)) })
 `
 

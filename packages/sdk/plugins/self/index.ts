@@ -7,11 +7,11 @@
  * plugin, examples) are in docs the agent reads when needed.
  */
 import { Effect } from "effect"
-import { Plugin } from "@pie/sdk"
+import { Plugin } from "pie-agent"
 import * as path from "node:path"
 
-export const guide = (paths: { home?: string | undefined; plugins?: string | undefined; sdk: string; templates: string; docs: string }) => {
-  const pie = `node --no-warnings ${path.join(paths.sdk, "src", "cli.ts")}`
+export const guide = (paths: { home?: string | undefined; plugins?: string | undefined; sdk: string; templates: string; docs: string; cli: string }) => {
+  const pie = `node --no-warnings ${paths.cli}`
   const home = paths.home === undefined ? "" : ` --home ${paths.home}`
   return `You can change yourself: every part of you (tools, prompts, the web interface, models, this text) is a plugin,
 and every plugin is a folder you can edit. Only do it when the user asks for a change to Pie itself.

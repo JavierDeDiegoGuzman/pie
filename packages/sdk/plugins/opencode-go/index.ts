@@ -3,7 +3,7 @@
  * Options: { models?: string[] } to override the default model list.
  */
 import { Effect, FileSystem, Layer, Path } from "effect"
-import { OpenCodeGo, Plugin } from "@pie/sdk"
+import { OpenCodeGo, Plugin } from "pie-agent"
 
 export const DEFAULT_MODELS = ["deepseek-v4.1-flash", "deepseek-v4-pro", "kimi-k3", "glm-5.3", "qwen3.8-max"]
 

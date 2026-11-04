@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S node --no-warnings
 /**
  * pie: run Pie and recover it from the terminal, without loading any plugin.
  *
@@ -9,8 +9,8 @@
  *
  * PIE_SAFE=1 starts with the SDK templates only, ignoring the plugins folder.
  */
+import * as Package from "./core/Package.ts"
 import * as path from "node:path"
-import { fileURLToPath } from "node:url"
 import * as Recovery from "./core/Recovery.ts"
 import * as Supervisor from "./Supervisor.ts"
 
@@ -34,7 +34,7 @@ const usage = () => {
 if (!["serve", "explain", "rollback"].includes(command ?? "")) usage()
 
 if (command === "serve") {
-  const app = path.join(path.dirname(fileURLToPath(import.meta.url)), "app.ts")
+  const app = Package.entry("app")
   const rest = args.slice(1).filter((_, i, all) => all[i] !== "--home" && all[i - 1] !== "--home")
   const code = await Supervisor.run({
     script: app,

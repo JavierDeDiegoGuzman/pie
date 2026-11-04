@@ -2,7 +2,7 @@
  * Child process: a scripted agent writes a broken plugin into its plugins
  * folder (refused before its next step), then a valid one (applied before its
  * next step), then uses its tool. The home is outside the repo, so the
- * plugin's imports of "effect" and "@pie/sdk" go through Pie's module resolver.
+ * plugin's imports of "effect" and "pie-agent" go through Pie's module resolver.
  *
  *   node self-modify-run.ts <home> <outFile>
  */
@@ -18,7 +18,7 @@ fs.appendFileSync(`${outFile}.starts`, "start\n")
 
 const file = path.join(home, "plugins", "word-count", "index.ts")
 const VALID = `import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from "@pie/sdk"
+import { Plugin, defineTool } from "pie-agent"
 
 export default Plugin.define({
   id: "word-count",

@@ -429,7 +429,7 @@ describe("plugin state as events", () => {
 
 describe("self-modification: edit the plugins folder; edits apply before the next step", () => {
   const plugin = (body: string) => `import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from "@pie/sdk"
+import { Plugin, defineTool } from "pie-agent"
 export default Plugin.define({ id: "word-count", setup: (ctx) => ${body} })
 `
   const valid = plugin(`ctx.tools.transform((tools) => {

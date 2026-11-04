@@ -3,7 +3,7 @@
  * (cwd, date, platform). Replace or disable it to change the agent's persona.
  */
 import { Effect } from "effect"
-import { Plugin } from "@pie/sdk"
+import { Plugin } from "pie-agent"
 
 export const BASE_PROMPT = `You are Pie, a coding agent that works in the user's repository through tools.
 

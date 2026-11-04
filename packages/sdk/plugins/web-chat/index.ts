@@ -2,7 +2,7 @@
  * Built-in plugin: the chat of the web interface, as a UI module (sidebar with
  * sessions, main with the conversation). Replaceable like any plugin.
  */
-import { Plugin } from "@pie/sdk"
+import { Plugin } from "pie-agent"
 
 export default Plugin.define({
   id: "web-chat",

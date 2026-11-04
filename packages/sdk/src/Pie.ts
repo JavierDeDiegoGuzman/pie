@@ -7,9 +7,9 @@
  *   yield* session.prompt("...")
  *   const outcome = yield* session.awaitIdle
  */
+import * as Package from "./core/Package.ts"
 import { randomUUID } from "node:crypto"
 import * as fs from "node:fs"
-import { fileURLToPath } from "node:url"
 import * as path from "node:path"
 import { NodeServices } from "@effect/platform-node"
 import { Context, Effect, Layer, type Scope, Stream } from "effect"
@@ -127,10 +127,10 @@ export interface LayerOptions {
 export const DEFAULT_SEED: ReadonlyArray<string> = ["opencode-go", "system-prompt", "context-files", "coding-tools", "self"]
 
 /** Root of the SDK package. */
-export const SDK_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+export const SDK_ROOT = Package.ROOT
 
-/** What the agent may read but not write: the SDK's code, its plugin templates and its manifest. */
-export const SDK_PROTECTED = ["src", "plugins", "package.json"].map((p) => path.join(SDK_ROOT, p))
+/** What the agent may read but not write: the SDK's code, its plugin templates, its docs and its manifest. */
+export const SDK_PROTECTED = ["src", "dist", "plugins", "docs", "package.json"].map((p) => path.join(SDK_ROOT, p))
 
 /**
  * Host plugin that keeps the SDK read-only: write and edit inside it are
@@ -150,7 +150,7 @@ const sdkGuard = Plugin.define({
         if (SDK_PROTECTED.some((p) => resolved === p || resolved.startsWith(p + path.sep))) {
           event.decision = {
             _tag: "Deny",
-            reason: `Pie's SDK (${SDK_ROOT}) is read-only. Plugins live in your plugins folder; edit them there and call restart.`
+            reason: `Pie's SDK (${SDK_ROOT}) is read-only. Plugins live in your plugins folder; edit them there.`
           }
         }
       }))
@@ -228,8 +228,9 @@ export const layer = (options: LayerOptions) => {
         home,
         plugins: home ? path.join(home, "plugins") : undefined,
         sdk: SDK_ROOT,
-        templates: path.join(SDK_ROOT, "plugins"),
-        docs: path.join(SDK_ROOT, "..", "..", "docs")
+        templates: Package.TEMPLATES,
+        docs: Package.DOCS,
+        cli: Package.entry("cli")
       }
     })
   }))

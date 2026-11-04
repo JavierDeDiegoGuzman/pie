@@ -7,6 +7,7 @@
  * stable per-conversation `x-opencode-session`. Pie sends `pie/<version>` and
  * its own session id; it never impersonates OpenCode or another client.
  */
+import * as Package from "../core/Package.ts"
 import { OpenAiClient, OpenAiLanguageModel } from "@effect/ai-openai-compat"
 import { Config, Effect, Layer, Option, Redacted, Schema } from "effect"
 import { FileSystem, Path } from "effect"
@@ -15,7 +16,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http"
 
 export const API_URL = "https://opencode.ai/zen/go/v1"
 export const DEFAULT_MODEL = "deepseek-v4.1-flash"
-export const USER_AGENT = "pie/0.0.0"
+export const USER_AGENT = `pie/${Package.VERSION}`
 
 const PiAuthFile = Schema.Struct({
   "opencode-go": Schema.optionalKey(Schema.Struct({ key: Schema.String }))

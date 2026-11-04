@@ -34,16 +34,31 @@ export const run = (options: RunOptions): Promise<number> =>
   new Promise((resolve) => {
     let attempt = 0
     let quickCrashes = 0
+    let child: ReturnType<typeof spawn> | undefined
+    let stopping = false
+    // Stopping the supervisor stops Pie: forward the signal and exit with it, without restarting.
+    const stop = (signal: NodeJS.Signals) => {
+      stopping = true
+      if (child && child.exitCode === null) child.kill(signal)
+      else resolve(0)
+    }
+    const signals = ["SIGTERM", "SIGINT", "SIGHUP"] as const
+    for (const signal of signals) process.on(signal, stop)
+    const done = (code: number) => {
+      for (const signal of signals) process.off(signal, stop)
+      resolve(code)
+    }
     const start = () => {
-      if (options.onStart?.(attempt) === false) return resolve(1)
+      if (options.onStart?.(attempt) === false) return done(1)
       attempt++
       const startedAt = Date.now()
-      const child = spawn(process.execPath, [...(options.nodeArgs ?? ["--no-warnings"]), options.script, ...(options.args ?? [])], {
+      child = spawn(process.execPath, [...(options.nodeArgs ?? ["--no-warnings"]), options.script, ...(options.args ?? [])], {
         stdio: "inherit",
         env: { ...process.env, PIE_SUPERVISED: "1" }
       })
       child.on("exit", (code) => {
-        if (code === 0) return resolve(0)
+        if (stopping) return done(0)
+        if (code === 0) return done(0)
         if (code === RESTART_EXIT_CODE) {
           quickCrashes = 0
           return start()
@@ -57,7 +72,7 @@ export const run = (options: RunOptions): Promise<number> =>
               options.onRollback?.({ toSeq: result.toSeq, reason })
               start()
             },
-            () => resolve(code ?? 1)
+            () => done(code ?? 1)
           )
           return
         }

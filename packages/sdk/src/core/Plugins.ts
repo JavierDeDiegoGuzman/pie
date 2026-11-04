@@ -17,6 +17,7 @@
  * earlier snapshot. Safe mode loads the SDK templates instead of the folder.
  */
 import * as fs from "node:fs/promises"
+import * as os from "node:os"
 import * as path from "node:path"
 import { Context, Data, Deferred, Effect, FileSystem, Layer, Path, Semaphore } from "effect"
 import { type ConfigEvent, ConfigLog, type ConfigState, type Files, hashFiles } from "./ConfigLog.ts"
@@ -137,14 +138,22 @@ export class Plugins extends Context.Service<Plugins, {
         )
       }
 
+      const safeCopy = async (files: Files) => {
+        const dir = options.home === undefined
+          ? path.join(os.tmpdir(), `pie-safe-${hashFiles(files).slice(0, 12)}`)
+          : path.join(options.home, "safe-mode")
+        await Folder.writeFiles(dir, files)
+        return dir
+      }
       let appliedHash: string | undefined // hash of the folder as last applied
       /** Makes the loaded folder plugins match `files` (or the templates in safe mode). */
       const apply = (files: Files) =>
         Effect.gen(function*() {
           appliedHash = hashFiles(files)
-          const base = options.safe ? Folder.TEMPLATES : folder
-          if (base === undefined) return
           const source = options.safe ? yield* Effect.promise(() => Folder.templateFiles(options.seed)) : files
+          // Safe mode runs a copy of the templates: Node does not strip TypeScript under node_modules.
+          const base = options.safe ? yield* Effect.promise(() => safeCopy(source)) : folder
+          if (base === undefined) return
           const ids = Folder.enabledPlugins(source)
           for (const [i, id] of ids.entries()) {
             const hash = hashFiles(Folder.pluginFiles(source, id))

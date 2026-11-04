@@ -20,7 +20,7 @@ import * as http from "node:http"
 import * as path from "node:path"
 import { fileURLToPath } from "node:url"
 import { Effect, Stream } from "effect"
-import { Plugin, WebAssets } from "@pie/sdk"
+import { Plugin, WebAssets } from "pie-agent"
 
 // The page and the browser SDK live next to this file: edit them like any plugin code.
 const here = path.dirname(fileURLToPath(import.meta.url))

@@ -80,6 +80,8 @@ export interface PieApi {
     /** Templates new homes are seeded from (read-only; what safe mode loads). */
     readonly templates: string
     readonly docs: string
+    /** The pie CLI (explain, rollback): run it with node. */
+    readonly cli: string
   }
 }
 
