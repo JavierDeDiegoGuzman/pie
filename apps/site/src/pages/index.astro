@@ -1,0 +1,323 @@
+---
+// The landing page. Hand-made (not a Starlight page); the docs keep Starlight.
+import "@fontsource-variable/fraunces"
+import "@fontsource-variable/inter"
+import "@fontsource-variable/jetbrains-mono"
+import logo from "../assets/pie.svg?raw"
+
+const base = import.meta.env.BASE_URL.replace(/\/?$/, "/")
+const repo = "https://github.com/JavierDeDiegoGuzman/pie"
+const npm = "https://www.npmjs.com/package/pie-agent"
+const command = "npx pie-agent serve"
+const pluginCode = `<span class="k">export default</span> Plugin.define({
+  id: <span class="s">"word-count"</span>,
+  setup: (ctx) =&gt; ctx.tools.transform((tools) =&gt; {
+    tools.set(<span class="s">"word_count"</span>, defineTool({
+      name: <span class="s">"word_count"</span>,
+      parameters: Schema.Struct({ text: Schema.String }),
+      execute: ({ text }) =&gt; Effect.succeed({
+        content: String(text.split(<span class="s">/\\s+/</span>).length)
+      })
+    }))
+  })
+})`
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pie · pi, reimplemented on Effect</title>
+    <meta name="description" content="A coding agent that survives crashes and rewrites itself, with undo. pi's minimal core, rebuilt on Effect." />
+    <meta property="og:title" content="Pie · pi, reimplemented on Effect" />
+    <meta property="og:description" content="A coding agent that survives crashes and rewrites itself, with undo." />
+    <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href={base}><span class="brand-logo" set:html={logo} /> Pie</a>
+      <nav>
+        <a href={`${base}getting-started/`}>Docs</a>
+        <a href={`${base}why/`}>Why Pie</a>
+        <a href={`${base}changelog/`}>Changelog</a>
+        <a class="nav-gh" href={repo} aria-label="GitHub">
+          <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          GitHub
+        </a>
+      </nav>
+    </header>
+
+    <main>
+      <!-- Hero -->
+      <section class="hero">
+        <div class="hero-text">
+          <p class="eyebrow"><span class="pi">π</span> + <span class="e">e</span> = pie</p>
+          <h1>A coding agent that <em>survives crashes</em> and <em>rewrites itself</em>. With undo.</h1>
+          <p class="lede">
+            Pie is <a href="https://pi.dev">pi</a>, reimplemented on <a href="https://effect.website">Effect</a>: a tiny core,
+            four tools, and everything else as plugins the agent can edit. Every step is an event in a log, so nothing is
+            lost and every change can be rolled back.
+          </p>
+          <div class="cta">
+            <button class="cmd" data-copy={command} aria-label="Copy the install command">
+              <span class="prompt">$</span> <code>{command}</code>
+              <span class="copy">Copy</span>
+            </button>
+            <a class="button" href={`${base}getting-started/`}>Get started <span aria-hidden="true">→</span></a>
+          </div>
+          <p class="meta">MIT · Node 22.18+ · <a href={npm}>npm</a> · <a href={repo}>source</a></p>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+          <div class="halo"></div>
+          <div class="logo-big" set:html={logo} />
+        </div>
+      </section>
+
+      <!-- kill -9 -->
+      <section class="band dark">
+        <div class="split">
+          <div>
+            <p class="kicker">Durable</p>
+            <h2>Pull the plug. Pie picks up where it was.</h2>
+            <p>
+              A session is an append-only tree of events in SQLite. The agent is a pure program over that log:
+              <code>evolve(state, event)</code> and <code>decide(state, now)</code>. After a crash, a restart or a
+              <code>kill -9</code>, Pie folds the log and carries on.
+            </p>
+            <ul class="checks">
+              <li>Finished model calls are never paid twice.</li>
+              <li>Safe tools re-run; unsafe ones report <em>outcome unknown</em> instead of running twice.</li>
+              <li>Retries, timers and approvals survive restarts.</li>
+            </ul>
+          </div>
+          <div class="term">
+            <div class="term-bar"><i></i><i></i><i></i><span>~/repo</span></div>
+<pre><span class="dim">● run started</span>  "migrate the config loader"
+<span class="tool">→ read</span>   src/config.ts            <span class="ok">done</span>
+<span class="tool">→ edit</span>   src/config.ts            <span class="ok">done</span>
+<span class="tool">→ bash</span>   pnpm test                <span class="warn">running…</span>
+
+<span class="bad">$ kill -9 4211</span>
+
+<span class="dim">$ pie serve --home .pie</span>
+<span class="dim">● resuming 1 open run from the log</span>
+<span class="tool">→ bash</span>   pnpm test                <span class="warn">outcome unknown</span>
+<span class="dim">  the model is told, checks the state, re-runs it</span>
+<span class="tool">→ bash</span>   pnpm test                <span class="ok">42 passed</span>
+<span class="ok">● run completed</span></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- equation -->
+      <section class="equation">
+        <div class="term-card">
+          <div class="glyph pi">π</div>
+          <h3>pi</h3>
+          <p>A minimal core. Four tools: <code>read</code>, <code>write</code>, <code>edit</code>, <code>bash</code>. Everything else is an extension, and the agent can write its own.</p>
+        </div>
+        <div class="op">+</div>
+        <div class="term-card">
+          <div class="glyph e">e</div>
+          <h3>Effect</h3>
+          <p>Typed effects, scopes, layers and durable workflows. Plugins are Effects with their own scope; the log is the source of truth.</p>
+        </div>
+        <div class="op">=</div>
+        <div class="term-card result">
+          <div class="glyph logo-glyph" set:html={logo} />
+          <h3>pie</h3>
+          <p>pi's simplicity, with crash-proof sessions, validated self-modification and undo for every change.</p>
+        </div>
+      </section>
+
+      <!-- self-modification -->
+      <section class="band cream">
+        <div class="split reverse">
+          <div class="steps">
+            <div class="step"><b>1</b><div><h4>The agent edits a plugin</h4><p>Every plugin is a folder in <code>.pie/plugins/</code>: tools, prompts, models, even the web UI. It uses its normal <code>edit</code> tool.</p></div></div>
+            <div class="step"><b>2</b><div><h4>Pie validates it before the next step</h4><p>Loaded in a throwaway composition first. If it breaks, nothing changes and the agent gets the errors.</p></div></div>
+            <div class="step"><b>3</b><div><h4>Every change is a snapshot</h4><p>Roll back from the page, with <code>pie rollback</code>, or automatically when Pie stops starting.</p></div></div>
+          </div>
+          <div>
+            <p class="kicker cherry">Self-modifying</p>
+            <h2>It changes itself. You keep the undo button.</h2>
+            <p>
+              Ask for a new tool, a different prompt or a redesigned interface. The agent edits the plugin that owns it;
+              the SDK itself stays read-only, so there is always a working Pie to come back to.
+            </p>
+<pre class="code" set:html={pluginCode} />
+          </div>
+        </div>
+      </section>
+
+      <!-- features -->
+      <section class="features">
+        <h2 class="center">Everything outside the core is a plugin</h2>
+        <div class="grid">
+          <article><h4>Events, not state</h4><p>Plugins add event types and fold them into projections. Branch a session and its state branches with it.</p></article>
+          <article><h4>Reactions with cursors</h4><p>React to events after they are in the log, exactly once per session, across restarts.</p></article>
+          <article><h4>Model-visible means logged</h4><p>Every request records its system prompt and tools. You can always see what the model saw.</p></article>
+          <article><h4>A web UI you can rewrite</h4><p><code>pie serve</code> opens a local interface built from plugins, with a recovery menu that survives bad edits.</p></article>
+          <article><h4>SDK first</h4><p>Embed Pie in your Effect program: sessions, steering, branching, live events, workflows in the same database.</p></article>
+          <article><h4>Small context</h4><p>Four tools by default, like pi. The agent composes the rest with bash instead of paying for tool schemas every step.</p></article>
+        </div>
+      </section>
+
+      <!-- CTA -->
+      <section class="band dark final">
+        <h2>Bake one.</h2>
+        <p>Runs locally. Bring an OpenCode Go key, or the credential you already use with pi.</p>
+        <div class="cta center-row">
+          <button class="cmd light" data-copy={command} aria-label="Copy the install command">
+            <span class="prompt">$</span> <code>{command}</code> <span class="copy">Copy</span>
+          </button>
+          <a class="button gold" href={`${base}getting-started/`}>Read the guide <span aria-hidden="true">→</span></a>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <span>Pie · MIT · 0.1, experimental</span>
+      <span>An independent project inspired by <a href="https://pi.dev">pi</a> by Mario Zechner. Not affiliated.</span>
+    </footer>
+
+    <script>
+      for (const button of document.querySelectorAll<HTMLButtonElement>("[data-copy]")) {
+        button.addEventListener("click", async () => {
+          await navigator.clipboard.writeText(button.dataset.copy ?? "")
+          const label = button.querySelector(".copy")
+          if (!label) return
+          label.textContent = "Copied"
+          setTimeout(() => (label.textContent = "Copy"), 1400)
+        })
+      }
+    </script>
+  </body>
+</html>
+
+<style is:global>
+  :root {
+    --cream: #fff8ee;
+    --cream-2: #fbefdc;
+    --cocoa: #2b1a10;
+    --cocoa-2: #5b4333;
+    --cherry: #c42f4a;
+    --cherry-2: #a3233b;
+    --gold: #e9a848;
+    --gold-2: #f4c46e;
+    --night: #1a110c;
+    --night-2: #241812;
+    --serif: "Fraunces Variable", Georgia, serif;
+    --sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+    --mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body { margin: 0; background: var(--cream); color: var(--cocoa); font: 17px/1.6 var(--sans); -webkit-font-smoothing: antialiased; }
+  a { color: inherit; }
+  code { font-family: var(--mono); font-size: 0.88em; }
+  p code, li code, h4 code { background: rgb(43 26 16 / 0.07); padding: 0.1em 0.35em; border-radius: 0.3em; }
+  h1, h2, h3 { font-family: var(--serif); font-weight: 600; letter-spacing: -0.02em; line-height: 1.08; margin: 0 0 0.5em; }
+  h2 { font-size: clamp(2rem, 4vw, 2.9rem); }
+  h4 { margin: 0 0 0.3em; font-size: 1.05rem; }
+</style>
+
+<style>
+  .nav { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; justify-content: space-between; padding: 14px clamp(20px, 5vw, 64px); background: rgb(255 248 238 / 0.85); backdrop-filter: blur(10px); border-bottom: 1px solid rgb(43 26 16 / 0.08); }
+  .brand { display: flex; align-items: center; gap: 10px; font: 700 1.3rem var(--serif); text-decoration: none; }
+  .brand-logo :global(svg) { width: 32px; height: 32px; display: block; }
+  .nav nav { display: flex; align-items: center; gap: clamp(12px, 2.5vw, 28px); font-size: 0.95rem; }
+  .nav nav a { text-decoration: none; color: var(--cocoa-2); }
+  .nav nav a:hover { color: var(--cherry); }
+  .nav-gh { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid rgb(43 26 16 / 0.15); border-radius: 999px; }
+  .nav-gh svg { width: 16px; height: 16px; }
+
+  section { padding: clamp(64px, 10vw, 120px) clamp(20px, 5vw, 64px); }
+  .hero { display: grid; grid-template-columns: 1.15fr 0.85fr; gap: 48px; align-items: center; max-width: 1240px; margin: 0 auto; padding-top: clamp(48px, 8vw, 96px); }
+  .eyebrow { display: inline-flex; gap: 0.45em; font: 600 1rem var(--mono); color: var(--cocoa-2); background: var(--cream-2); padding: 6px 14px; border-radius: 999px; margin: 0 0 22px; }
+  .eyebrow .pi { color: var(--cherry); } .eyebrow .e { color: #b36f24; }
+  .hero h1 { font-size: clamp(2.6rem, 6vw, 4.6rem); }
+  .hero h1 em { font-style: italic; color: var(--cherry); }
+  .lede { font-size: 1.2rem; color: var(--cocoa-2); max-width: 36em; }
+  .lede a { text-decoration-color: var(--gold); text-underline-offset: 3px; }
+  .cta { display: flex; flex-wrap: wrap; gap: 14px; margin: 30px 0 18px; }
+  .cmd { display: inline-flex; align-items: center; gap: 10px; font: inherit; cursor: pointer; background: var(--night); color: #f6eadb; border: 0; border-radius: 12px; padding: 14px 18px; box-shadow: 0 10px 30px rgb(43 26 16 / 0.18); }
+  .cmd code { font-size: 0.98rem; }
+  .cmd .prompt { color: var(--gold-2); font-family: var(--mono); }
+  .cmd .copy { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: #b9a08c; border-left: 1px solid #4a372b; padding-left: 10px; }
+  .cmd:hover .copy { color: var(--gold-2); }
+  .cmd.light { background: var(--cream); color: var(--cocoa); }
+  .cmd.light .prompt { color: var(--cherry); } .cmd.light .copy { color: var(--cocoa-2); border-color: #e2c49a; }
+  .button { display: inline-flex; align-items: center; gap: 8px; padding: 14px 22px; border-radius: 12px; background: var(--cherry); color: #fff; text-decoration: none; font-weight: 600; transition: transform 0.15s, background 0.15s; }
+  .button:hover { background: var(--cherry-2); transform: translateY(-1px); }
+  .button.gold { background: var(--gold); color: var(--night); } .button.gold:hover { background: var(--gold-2); }
+  .meta { font-size: 0.9rem; color: var(--cocoa-2); } .meta a { color: var(--cocoa-2); }
+
+  .hero-art { position: relative; display: grid; place-items: center; }
+  .halo { position: absolute; width: 90%; aspect-ratio: 1; border-radius: 50%; background: radial-gradient(circle, rgb(244 196 110 / 0.55), rgb(196 47 74 / 0.12) 55%, transparent 70%); filter: blur(10px); }
+  .logo-big { position: relative; width: min(100%, 440px); animation: float 7s ease-in-out infinite; }
+  .logo-big :global(svg) { width: 100%; height: auto; display: block; filter: drop-shadow(0 30px 40px rgb(122 50 20 / 0.28)); }
+  @keyframes float { 50% { transform: translateY(-12px) rotate(-2deg); } }
+
+  .band.dark { background: var(--night); color: #f3e6d6; }
+  .band.dark p { color: #cdb9a6; }
+  .band.dark p code { background: rgb(255 255 255 / 0.08); color: var(--gold-2); }
+  .band.cream { background: var(--cream-2); }
+  .split { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(32px, 5vw, 72px); align-items: center; max-width: 1240px; margin: 0 auto; }
+  .kicker { font: 600 0.8rem var(--mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--gold) !important; margin: 0 0 14px; }
+  .kicker.cherry { color: var(--cherry) !important; }
+  .checks { list-style: none; padding: 0; margin: 24px 0 0; display: grid; gap: 10px; }
+  .checks li { padding-left: 30px; position: relative; color: #e8d8c6; }
+  .checks li::before { content: ""; position: absolute; left: 0; top: 0.35em; width: 18px; height: 18px; border-radius: 50%; background: var(--cherry) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5l2.5 2.5L12 5.5' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") center/14px no-repeat; }
+
+  .term { background: #120c08; border: 1px solid #3a2a20; border-radius: 14px; overflow: hidden; box-shadow: 0 30px 60px rgb(0 0 0 / 0.4); }
+  .term-bar { display: flex; align-items: center; gap: 7px; padding: 12px 14px; background: #1f1510; border-bottom: 1px solid #3a2a20; font: 0.8rem var(--mono); color: #8a7262; }
+  .term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #4a372b; }
+  .term-bar i:nth-child(1) { background: var(--cherry); } .term-bar i:nth-child(2) { background: var(--gold); } .term-bar i:nth-child(3) { background: #7aa35a; }
+  .term-bar span { margin-left: 8px; }
+  .term pre { margin: 0; padding: 20px 22px; font: 0.86rem/1.75 var(--mono); color: #e8d8c6; overflow-x: auto; }
+  .term .dim { color: #8a7262; } .term .tool { color: var(--gold-2); } .term .ok { color: #9ccc7a; } .term .warn { color: #f0a35e; } .term .bad { color: #ff6b81; font-weight: 700; }
+
+  .equation { display: grid; grid-template-columns: 1fr auto 1fr auto 1.1fr; gap: 20px; align-items: center; max-width: 1240px; margin: 0 auto; }
+  .term-card { background: #fff; border: 1px solid #eedcc2; border-radius: 18px; padding: 28px; height: 100%; box-shadow: 0 1px 0 #eedcc2, 0 18px 40px rgb(122 50 20 / 0.06); }
+  .term-card.result { background: linear-gradient(160deg, #fff, var(--cream-2)); border-color: var(--gold); }
+  .term-card p { color: var(--cocoa-2); margin: 0; font-size: 0.98rem; }
+  .term-card h3 { font-size: 1.6rem; margin-bottom: 0.3em; }
+  .glyph { width: 56px; height: 56px; border-radius: 14px; display: grid; place-items: center; font: 600 2rem var(--serif); margin-bottom: 18px; }
+  .glyph.pi { background: #fbe4e8; color: var(--cherry); } .glyph.e { background: #fdf0db; color: #b36f24; font-style: italic; }
+  .logo-glyph { background: none; } .logo-glyph :global(svg) { width: 56px; height: 56px; }
+  .op { font: 600 2.4rem var(--serif); color: #c9a27a; }
+
+  .split.reverse > :first-child { order: 0; }
+  .steps { display: grid; gap: 16px; }
+  .step { display: flex; gap: 18px; background: #fff; border: 1px solid #eedcc2; border-radius: 16px; padding: 22px; }
+  .step b { flex: none; width: 36px; height: 36px; border-radius: 50%; display: grid; place-items: center; background: var(--cherry); color: #fff; font: 600 1rem var(--serif); }
+  .step p { margin: 0; color: var(--cocoa-2); font-size: 0.97rem; }
+  .code { background: var(--night); color: #e8d8c6; border-radius: 14px; padding: 20px 22px; font: 0.85rem/1.65 var(--mono); overflow-x: auto; margin-top: 24px; }
+  .code :global(.k) { color: #ff8fa3; } .code :global(.s) { color: var(--gold-2); }
+
+  .features { max-width: 1240px; margin: 0 auto; }
+  .center { text-align: center; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; margin-top: 40px; }
+  .grid article { background: #fff; border: 1px solid #eedcc2; border-radius: 16px; padding: 26px; transition: transform 0.15s, box-shadow 0.15s; }
+  .grid article:hover { transform: translateY(-3px); box-shadow: 0 18px 40px rgb(122 50 20 / 0.08); }
+  .grid article h4 { font-family: var(--serif); font-size: 1.25rem; }
+  .grid article h4::before { content: ""; display: block; width: 28px; height: 4px; border-radius: 4px; background: linear-gradient(90deg, var(--cherry), var(--gold)); margin-bottom: 16px; }
+  .grid article p { margin: 0; color: var(--cocoa-2); font-size: 0.97rem; }
+
+  .final { text-align: center; }
+  .final h2 { font-size: clamp(2.4rem, 5vw, 3.6rem); }
+  .center-row { justify-content: center; }
+
+  footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 28px clamp(20px, 5vw, 64px); font-size: 0.88rem; color: var(--cocoa-2); border-top: 1px solid #eedcc2; }
+
+  @media (max-width: 900px) {
+    .hero, .split { grid-template-columns: 1fr; }
+    .hero-art { order: -1; } .logo-big { width: min(70%, 300px); }
+    .equation { grid-template-columns: 1fr; } .op { text-align: center; }
+    .grid { grid-template-columns: 1fr; }
+    .nav nav a:not(.nav-gh) { display: none; }
+    .nav nav a[href$="getting-started/"] { display: inline; }
+  }
+</style>

@@ -14,7 +14,12 @@ export default defineConfig({
       favicon: "/favicon.svg",
       social: [{ icon: "github", label: "GitHub", href: "https://github.com/JavierDeDiegoGuzman/pie" }],
       editLink: { baseUrl: "https://github.com/JavierDeDiegoGuzman/pie/edit/main/packages/sdk/docs/" },
-      customCss: ["./src/styles/theme.css"],
+      customCss: [
+        "@fontsource-variable/inter",
+        "@fontsource-variable/fraunces",
+        "@fontsource-variable/jetbrains-mono",
+        "./src/styles/theme.css"
+      ],
       sidebar: [
         { label: "Start here", items: ["getting-started", "why"] },
         { label: "Docs", items: ["docs/plugins", "docs/events", "docs/core", "docs/architecture"] },
