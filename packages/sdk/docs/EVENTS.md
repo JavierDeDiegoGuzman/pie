@@ -1,7 +1,7 @@
 # Pie: everything is events
 
 What is durable is always events; what is live is always effects derived from
-them. Diagrams in `docs/architecture.html`.
+them. Diagrams in [architecture.md](architecture.md).
 
 ## Two logs, one database
 

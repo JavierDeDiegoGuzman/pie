@@ -1,0 +1,63 @@
+---
+title: Pie
+description: pi, reimplemented on Effect. A durable, self-modifying coding agent.
+template: splash
+hero:
+  title: Pie
+  tagline: pi, reimplemented on Effect. A coding agent that survives crashes and rewrites itself, with undo.
+  image:
+    file: ../../assets/pie.svg
+  actions:
+    - text: Get started
+      link: getting-started/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/JavierDeDiegoGuzman/pie
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid } from "@astrojs/starlight/components"
+
+```sh
+npx pie-agent serve --home .pie --cwd .
+```
+
+## pi + e = pie
+
+[pi](https://pi.dev) showed that a coding agent needs very little: a small core, four tools
+and everything else as extensions. Pie keeps that idea and rebuilds it on
+[Effect](https://effect.website), so the parts pi leaves to memory and to the terminal become
+durable, typed and undoable.
+
+<CardGrid>
+  <Card title="Durable" icon="seti:db">
+    Every session is an append-only log of events. The agent is a pure program over it, so a
+    crash or a `kill -9` resumes exactly where it stopped: no repeated model calls, no repeated
+    side effects.
+  </Card>
+  <Card title="Self-modifying, with undo" icon="pencil">
+    Every plugin is a folder of TypeScript the agent can edit. Edits apply before its next
+    step; one that does not load is refused with its errors. Every change is a snapshot you can
+    roll back to.
+  </Card>
+  <Card title="Everything is a plugin" icon="puzzle">
+    Models, prompts, tools, context files and the web interface are plugins. They add event
+    types, projections, reactions, hooks and UI, each in its own Effect scope.
+  </Card>
+  <Card title="Few tools, like pi" icon="seti:shell">
+    The model sees `read`, `write`, `edit` and `bash`. Fewer tools means less context on every
+    step, and the agent composes the rest with bash.
+  </Card>
+  <Card title="A web interface you can rewrite" icon="laptop">
+    `pie serve` gives you a local web UI, served from a plugin the agent can change like any
+    other, with a recovery menu that keeps working when a change goes wrong.
+  </Card>
+  <Card title="An SDK first" icon="seti:typescript">
+    Embed Pie in your own Effect program: sessions, steering, branching, a live stream of events
+    and Effect workflows journaled in the same database.
+  </Card>
+</CardGrid>
+
+Pie is an independent project, inspired by pi by Mario Zechner. It is not affiliated with pi.
+It is at version 0.1: experimental, and the event format and the plugin API may still change.

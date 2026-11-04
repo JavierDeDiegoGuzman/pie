@@ -1,0 +1,22 @@
+/* Pie colours: cherry filling and golden crust. */
+:root {
+  --sl-color-accent-low: #3d0f19;
+  --sl-color-accent: #d8455f;
+  --sl-color-accent-high: #f6c46e;
+}
+:root[data-theme="light"] {
+  --sl-color-accent-low: #f8dfe4;
+  --sl-color-accent: #b02a42;
+  --sl-color-accent-high: #6e1a29;
+}
+.hero img {
+  filter: drop-shadow(0 12px 30px rgb(196 47 74 / 0.25));
+}
+
+/* Diagrams have a white background: frame them so they read in dark mode too. */
+.sl-markdown-content img[src$=".svg"] {
+  border-radius: 0.5rem;
+  border: 1px solid var(--sl-color-gray-5);
+  background: #fff;
+  padding: 0.5rem;
+}

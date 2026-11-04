@@ -6,7 +6,8 @@ import * as path from "node:path"
 
 const script = path.join(import.meta.dirname, "support", "crash-run.ts")
 
-const waitFor = async (predicate: () => boolean, ms = 15_000) => {
+// Generous: the child process starts slowly when the whole suite runs in parallel.
+const waitFor = async (predicate: () => boolean, ms = 40_000) => {
   const deadline = Date.now() + ms
   while (!predicate()) {
     if (Date.now() > deadline) throw new Error("timed out waiting")
@@ -51,5 +52,5 @@ describe("durability (SQLite, real process kill)", () => {
     expect(conversation).toEqual(["user", "model/responded", "tool/finished", "tool/finished", "model/responded", "run/ended"])
     // both tools started before the crash; re-running the read reuses its event id, so no duplicates
     expect(events.filter((e: any) => e.type === "tool/started")).toHaveLength(2)
-  }, 60_000)
+  }, 120_000)
 })

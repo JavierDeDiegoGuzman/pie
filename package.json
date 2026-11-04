@@ -10,7 +10,9 @@
     "check": "tsc -b --pretty false",
     "test": "vitest run",
     "build": "tsc -b",
-    "pack:smoke": "node --no-warnings scripts/smoke.ts"
+    "pack:smoke": "node --no-warnings scripts/smoke.ts",
+    "site:dev": "pnpm --filter pie-site dev",
+    "site:build": "pnpm --filter pie-site build"
   },
   "devDependencies": {
     "@effect/vitest": "4.1.2",

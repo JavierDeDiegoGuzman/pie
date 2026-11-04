@@ -6,3 +6,6 @@ dist
 packages/*/test/.tmp
 packages/sdk/README.md
 packages/sdk/LICENSE
+apps/site/src/content/docs/docs/
+apps/site/src/content/docs/changelog.md
+apps/site/.astro

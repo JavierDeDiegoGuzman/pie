@@ -1,7 +1,7 @@
 # pie-agent
 
 **Pie** is a durable, self-modifying coding agent built on [Effect](https://effect.website).
-It follows [pi](https://github.com/badlogic/pi-mono)'s idea of a minimal core, and adds two
+It follows [pi](https://pi.dev)'s idea of a minimal core, and adds two
 things:
 
 - **Durable.** Everything a session does is an event in an append-only log (SQLite by
@@ -108,10 +108,13 @@ parts, context hooks, tool policies, models and web UI. See
 
 ## Documentation
 
+The website is at **https://javierdediegoguzman.github.io/pie/**. The same docs are in this repo:
+
+
 - [docs/PLUGINS.md](packages/sdk/docs/PLUGINS.md): the plugin API, with examples
 - [docs/EVENTS.md](packages/sdk/docs/EVENTS.md): the event model, the tick, durability and undo
 - [docs/CORE.md](packages/sdk/docs/CORE.md): what is core and what is a plugin
-- [docs/architecture.html](packages/sdk/docs/architecture.html): diagrams
+- [docs/architecture.md](packages/sdk/docs/architecture.md): diagrams, edge cases and the SDK API
 - [docs/REFERENCES.md](packages/sdk/docs/REFERENCES.md): ideas taken from pi, OpenCode and the DeepSeek Harness
 
 ## Development
@@ -122,6 +125,7 @@ pnpm check        # types
 pnpm test         # unit, durability (real SIGKILLs) and web tests
 pnpm build && pnpm pack:smoke   # pack, install with npm in an empty folder, run
 PIE_LIVE=1 pnpm test            # also against the real model
+pnpm site:dev                   # the website (apps/site; Astro needs Node 22.23.4+)
 ```
 
 ## License
