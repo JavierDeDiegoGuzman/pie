@@ -1,7 +1,7 @@
 /**
  * Public SDK entry point.
  *
- *   const PieLive = Pie.layer({ storage: Storage.sqlite("pie.db") })
+ *   const PieLive = Pie.layer({ home: ".pie" })
  *   const pie = yield* Pie.Pie
  *   const session = yield* pie.create({ cwd, model: "opencode-go/deepseek-v4.1-flash" })
  *   yield* session.prompt("...")
@@ -116,9 +116,10 @@ export interface LayerOptions {
   /** Mark the plugins snapshot good after this long running (ms), and after each completed run. Default 3000. */
   readonly goodAfter?: number
   /**
-   * How the restart tool applies changes. "hot": in this process. "restart":
-   * drain to a safe point and exit with RESTART_EXIT_CODE (use with
-   * Supervisor.run / `pie serve` and Pie.exitOnRestart).
+   * How `plugins.restart` and rollbacks apply changes. "hot" (default): in this
+   * process. "restart": drain to a safe point and exit with RESTART_EXIT_CODE
+   * (with Supervisor.run and Pie.exitOnRestart). Edits the agent makes to the
+   * plugins folder always apply hot, before its next step.
    */
   readonly reload?: "hot" | "restart"
 }

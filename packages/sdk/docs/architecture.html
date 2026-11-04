@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<title>Pie · architecture</title>
+<style>
+  body{margin:0;font-family:var(--font-sans, system-ui);color:var(--foreground, #e6e6ea)}
+  h2{font-size:17px;margin:34px 0 4px}
+  h2:first-child{margin-top:4px}
+  p.lead{color:var(--muted-foreground, #9a9aa4);font-size:13px;margin:0 0 12px;line-height:1.45}
+  .box{background:var(--card, #16161a);border:1px solid var(--border, #3d3d45);border-radius:var(--radius, 8px);padding:16px}
+  .diagram{display:block;margin:0 auto;max-width:100%;height:auto}
+  table{border-collapse:collapse;width:100%;font-size:12.5px}
+  th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--border, #3d3d45);vertical-align:top;line-height:1.4}
+  tr:last-child td{border-bottom:none}
+  th{color:var(--muted-foreground, #9a9aa4);font-weight:600}
+  td:first-child{font-weight:600}
+  code{font-family:var(--font-mono, ui-monospace);font-size:11.5px}
+  .tag{display:inline-block;font-size:11px;padding:1px 7px;border-radius:999px;font-weight:600;white-space:nowrap}
+  .ok{background:color-mix(in srgb,var(--success, #4ade80) 18%,transparent);color:var(--success, #4ade80)}
+  .impl{background:color-mix(in srgb,var(--info, #38bdf8) 18%,transparent);color:var(--info, #38bdf8)}
+  .warn{background:var(--warning-surface, #3a2e10);color:var(--warning, #facc15)}
+  .bad{background:var(--destructive-surface, #3a1414);color:var(--destructive, #f87171)}
+  pre{background:var(--code-background, #101014);border-radius:var(--radius, 8px);padding:14px 16px;font-family:var(--font-mono, ui-monospace);font-size:12px;line-height:1.5;overflow:auto;margin:0}
+  .k{color:var(--chart-1, #818cf8)} .c{color:var(--muted-foreground, #9a9aa4)} .s{color:var(--chart-3, #2dd4bf)}
+  .note{font-size:12px;color:var(--muted-foreground, #9a9aa4);margin-top:10px;line-height:1.45}
+  .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;margin-bottom:10px}
+</style></head><body>
+
+<h2>1 · Fixed core and plugins</h2>
+<p class="lead">What is durable is always events (session log and configuration log); what is live is effects derived from them. If something can be a plugin, it is a plugin. Details in <code>docs/EVENTS.md</code>.</p>
+<div class="box"><img class="diagram" src="diagrams/layers.svg" alt="Core and plugins"></div>
+
+<h2>2 · The tick</h2>
+<p class="lead">The agent is an Elm program: <code>evolve(state, event)</code> and <code>decide(state, now)</code> are pure. The runtime folds the branch, asks <code>decide</code> what is missing and executes it; the results come back to the log as events. Resuming after a restart is the same as any other tick.</p>
+<div class="box"><img class="diagram" src="diagrams/tick.svg" alt="Tick"></div>
+
+<h2>3 · A prompt from start to finish</h2>
+<div class="box"><img class="diagram" src="diagrams/prompt-flow.svg" alt="Prompt flow">
+<div class="note"><code>model/requested</code> stores the system prompt and the offered tools: what the model sees is in the log. Event ids are deterministic (run, turn, call), so repeating a step never duplicates anything.</div></div>
+
+<h2>4 · Self-modification</h2>
+<p class="lead">The SDK is fixed; each plugin is a folder in <code>.pie/plugins/</code> that the agent edits with its normal tools; Pie applies the changes by itself before the next step (or tells the agent why not, with a <code>notice</code> event). Each applied change stores a full snapshot of the folder; going back to any of them is <code>pie rollback</code> (the agent runs it with bash; also from the web page, or the supervisor if Pie does not start).</p>
+<div class="box"><img class="diagram" src="diagrams/self-modification.svg" alt="Self-modification"></div>
+
+<h2>5 · What is persisted</h2>
+<div class="box"><img class="diagram" src="diagrams/persistence.svg" alt="Data model">
+<table style="margin-top:14px">
+<tr><th>Table</th><th>What it stores</th></tr>
+<tr><td>pie_events</td><td>The whole session, as a tree: core and plugin events</td></tr>
+<tr><td>pie_sessions</td><td>cwd, initial model and leaf of the current branch</td></tr>
+<tr><td>pie_config</td><td>Snapshots of the plugins folder and good-configuration marks</td></tr>
+<tr><td>pie_cursors</td><td>How far each reaction has processed in each session</td></tr>
+<tr><td>pie_workflow</td><td>Journal of the Effect workflows: executions, activities, deferreds, clocks, results</td></tr>
+<tr><td>pie_lock</td><td>One runtime per database</td></tr>
+</table>
+<div class="note">Streaming deltas are never stored: they go through <code>session.live</code>. Plugin projections are not stored either: they are recomputed by folding the branch.</div></div>
+
+<h2>6 · States of a run</h2>
+<div class="box"><img class="diagram" src="diagrams/states.svg" alt="States"></div>
+
+<h2>7 · Environments</h2>
+<div class="box"><img class="diagram" style="max-width:560px" src="diagrams/environments.svg" alt="Environments"></div>
+
+<h2>8 · Edge cases</h2>
+<div class="legend"><span class="tag ok">tested</span><span class="tag impl">implemented</span><span class="tag warn">pending</span><span class="tag bad">risk</span></div>
+<div class="box"><table>
+<tr><th>Case</th><th>What happens</th><th></th></tr>
+<tr><td>SIGKILL with a model turn already answered</td><td>The model is not called again.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>SIGKILL during an idempotent tool</td><td>It is repeated.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>SIGKILL during a non-idempotent tool</td><td>It is not repeated: «outcome unknown».</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>SIGKILL in the middle of the model stream</td><td><code>model/requested</code> without a response: the call is repeated.</td><td><span class="tag impl">implemented</span></td></tr>
+<tr><td>Provider failure</td><td><code>model/failed</code> with a retry time; 3 attempts with backoff; then <code>failed</code>.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>prompt with an active run / steer / followUp</td><td>SessionBusy; steer after the tools; followUp at the end, in the same run.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>abort during a tool</td><td>The tool is cut off, the run ends <code>aborted</code>, the session is free.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Tool ids repeated across turns</td><td>Event ids include the turn.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Parallel plugin tools that read state</td><td>Events record facts; ids and counters are derived by the projection.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Forking (navigate) with plugin state</td><td>The projection is that of the branch.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Broken plugin, or one that uses a policy point</td><td>Refused at validation; nothing changes.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Installing a plugin in the middle of a run</td><td>It is applied before the next step and its tool appears in that call; if it does not load, the agent receives the errors.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Effect workflow with SIGKILL</td><td>Completed activities are not repeated; the clock keeps its time; the approval resumes it; the result is stored.</td><td><span class="tag ok">tested</span></td></tr>
+<tr><td>Two processes on the same database</td><td>Lock with a 3 s expiry; the second one waits up to 10 s and fails.</td><td><span class="tag impl">implemented</span></td></tr>
+<tr><td>New reaction on existing sessions</td><td>It starts from now, not from the history.</td><td><span class="tag impl">implemented</span></td></tr>
+<tr><td>Very long sessions</td><td>Projections fold the whole branch on every read; snapshots will be needed.</td><td><span class="tag warn">pending</span></td></tr>
+<tr><td>Forking a session with running workflows</td><td>The workflow journal is not part of the session tree.</td><td><span class="tag bad">risk</span></td></tr>
+<tr><td>Changing core event types or payloads</td><td>They are the durable contract: compatible changes only.</td><td><span class="tag bad">risk</span></td></tr>
+</table></div>
+
+<h2>9 · SDK API</h2>
+<pre><span class="k">import</span> { Pie, Plugin, Storage, TodoPlugin, defineTool } <span class="k">from</span> <span class="s">"pie-agent"</span>
+
+<span class="k">const</span> PieLive = Pie.layer({
+  storage: Storage.sqlite(<span class="s">"pie.db"</span>),             <span class="c">// or Storage.memory</span>
+  plugins: [...Pie.builtins, TodoPlugin],           <span class="c">// opencode-go, system-prompt, context-files, coding-tools</span>
+  reload: <span class="s">"hot"</span>                                     <span class="c">// or "restart" with Supervisor.run + Pie.exitOnRestart</span>
+})
+
+<span class="k">const</span> program = Effect.gen(<span class="k">function</span>*() {
+  <span class="k">const</span> pie = <span class="k">yield</span>* Pie.Pie
+  <span class="k">const</span> session = <span class="k">yield</span>* pie.create({ cwd: <span class="s">"/repo"</span>, model: <span class="s">"opencode-go/deepseek-v4.1-flash"</span> })
+  <span class="k">yield</span>* session.live.pipe(Stream.runForEach(onEvent), Effect.forkScoped)   <span class="c">// events + deltas</span>
+  <span class="k">yield</span>* session.prompt(<span class="s">"fix the test"</span>)
+  <span class="k">const</span> outcome = <span class="k">yield</span>* session.awaitIdle            <span class="c">// run/ended: completed | failed | aborted</span>
+  <span class="k">const</span> events = <span class="k">yield</span>* session.events              <span class="c">// the current branch: the whole truth</span>
+  <span class="k">yield</span>* session.navigate(events[1].id)               <span class="c">// fork from there</span>
+})
+
+<span class="c">// A plugin with state: extend + derive + tool that emits + view</span>
+<span class="k">export default</span> Plugin.define({
+  id: <span class="s">"notes"</span>,
+  setup: (ctx) =&gt; Effect.gen(<span class="k">function</span>*() {
+    <span class="k">yield</span>* ctx.events({ added: Schema.Struct({ text: Schema.String }) })
+    <span class="k">const</span> notes = <span class="k">yield</span>* ctx.projection({ id: <span class="s">"notes"</span>, initial: () =&gt; [], on: { <span class="s">"notes/added"</span>: (s, e) =&gt; [...s, e.text] } })
+    <span class="k">yield</span>* ctx.tools.transform((t) =&gt; t.set(<span class="s">"note_add"</span>, defineTool({ ...,
+      execute: ({ text }, tool) =&gt; Effect.as(Effect.orDie(tool.emit(<span class="s">"notes/added"</span>, { text })), { content: <span class="s">"saved"</span> }) })))
+    <span class="k">yield</span>* ctx.hook(<span class="s">"context"</span>, (e) =&gt; Effect.map(notes.get(e.sessionId), (n) =&gt; void e.system.push({ key: <span class="s">"notes"</span>, text: n.join(<span class="s">"\n"</span>) })))
+    <span class="k">yield</span>* ctx.react({ id: <span class="s">"audit"</span>, on: [<span class="s">"tool/finished"</span>], run: (event, r) =&gt; ... })
+  })
+})</pre>
+</body></html>

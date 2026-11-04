@@ -1,7 +1,7 @@
 /**
  * Plugin: the web interface. Like every plugin it is a folder the agent can
  * edit (this file, shell.html, ui-sdk.js); edits apply before the next step. The
- * safety nets are rollback (also from the page's "Plugins y deshacer" menu),
+ * safety nets are rollback (also from the page's "Plugins & undo" menu),
  * `pie rollback` from the terminal and PIE_SAFE=1.
  *
  * Serves, on 127.0.0.1 only and behind a token:

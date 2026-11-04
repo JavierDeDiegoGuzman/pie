@@ -60,4 +60,4 @@ export default Plugin.define({
 - Keep the tools the model sees few: each one costs context on every step. Prefer
   doing things with `bash` unless a tool adds something bash cannot (durability,
   events, a policy).
-- More detail on events and the core: `EVENTOS.md` and `CORE.md` in this folder.
+- More detail on events and the core: `EVENTS.md` and `CORE.md` in this folder.

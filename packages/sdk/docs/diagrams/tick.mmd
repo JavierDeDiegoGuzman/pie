@@ -1,0 +1,15 @@
+flowchart TB
+  start["process startup<br/>(all open runs)"] --> fold
+  ext["API: prompt · steer · abort"] --> append
+  subgraph TICK["tick(session)"]
+    fold["fold the branch: evolve"] --> decide["decide(state, now)"]
+  end
+  decide --> cmdModel["CallModel<br/>model/requested → responded | failed"]
+  decide --> tool["RunTool<br/>tool/started → finished"]
+  decide --> deliver["Deliver<br/>user (steer / followUp)"]
+  decide --> end_["EndRun<br/>run/ended"]
+  decide --> wake["WakeAt<br/>wake-up timer (backoff)"]
+  cmdModel & tool & deliver & end_ --> append["append event to the log<br/>deterministic id · idempotent"]
+  append -- wakes --> fold
+  append -- wakes --> react["plugin reactions<br/>durable cursor"]
+  wake -- at its time --> fold

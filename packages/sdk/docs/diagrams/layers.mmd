@@ -1,0 +1,33 @@
+flowchart TB
+  host["Your code / future UI / CLI"]
+  sup["Supervisor<br/>relaunches on exit code 75"]
+  subgraph CORE["Fixed core"]
+    api["Pie · Session<br/>prompt · steer · followUp · abort · navigate · events · live"]
+    rt["Runtime: tick<br/>fold → decide → execute → events"]
+    agent["Agent<br/>evolve · decide · view (pure)"]
+    log[("Session log<br/>tree of events")]
+    cfg[("Config log<br/>snapshots of the folder")]
+    mgr["Plugins<br/>before each step: validate · snapshot · apply · rollback"]
+    guard["sdk-guard<br/>the SDK is read-only"]
+    reg["Registries (State)<br/>tools · models · prompt · hooks · events · projections · reactions"]
+    host2["PluginHost<br/>each plugin in its own Scope"]
+    wf["LogWorkflowEngine<br/>Effect workflows on the DB"]
+  end
+  subgraph PLUGINS[".pie/plugins/ (folders the agent edits)"]
+    p1["opencode-go"]
+    p2["coding-tools: read · write · edit · bash"]
+    p3["system-prompt · context-files"]
+    p4["self: guide and paths"]
+    p5["web · web-chat · the agent's own"]
+  end
+  host --> api --> rt
+  sup -. runs .-> host
+  rt --> agent
+  rt <--> log
+  mgr --> cfg
+  mgr --> host2 --> reg
+  rt --> reg
+  p1 & p2 & p3 & p4 & p5 --> host2
+  rt -. sync before each step .-> mgr
+  guard --> host2
+  wf --> log

@@ -1,0 +1,44 @@
+name: Release
+
+# Push a tag like v0.1.0 (matching packages/sdk/package.json) to publish
+# pie-agent to npm with provenance and create the GitHub release.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+      - run: pnpm install --frozen-lockfile
+      - name: Tag matches the package version
+        run: |
+          version=$(node -p "require('./packages/sdk/package.json').version")
+          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+      - run: pnpm pack:smoke
+      - name: Publish to npm
+        working-directory: packages/sdk
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: GitHub release with the changelog section
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          awk -v v="$version" '/^## /{p = index($0, "[" v "]") > 0; next} p' packages/sdk/CHANGELOG.md > notes.md
+          gh release create "$GITHUB_REF_NAME" --title "pie-agent $GITHUB_REF_NAME" --notes-file notes.md

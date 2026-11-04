@@ -1,66 +1,66 @@
-# Pie: núcleo fijo y plugins
+# Pie: fixed core and plugins
 
-Regla: si algo puede ser plugin, es plugin. El núcleo es lo que el agente usa
-pero no puede modificar: de él depende recuperarse de una automodificación
-defectuosa. El modelo de datos está en `docs/EVENTOS.md`.
+Rule: if something can be a plugin, it is a plugin. The core is what the agent
+uses but cannot modify: recovering from a faulty self-modification depends on
+it. The data model is in `docs/EVENTS.md`.
 
-## Núcleo (fijo)
+## Core (fixed)
 
-| Pieza | Archivo |
+| Piece | File |
 |---|---|
-| Log de sesión en árbol (única fuente de verdad) | `core/Log.ts` |
-| Programa del agente: eventos, `evolve`, `decide`, vista para el modelo | `core/Agent.ts` |
-| Runtime: tick, ejecución de comandos, reacciones, bloqueo por base de datos, drenaje | `core/Runtime.ts` |
-| Log de configuración de plugins | `core/ConfigLog.ts` |
-| Gestor de plugins: carpeta + host, siembra, validación, aplicar antes de cada paso, instantáneas, rollback, modo seguro, obligatorios | `core/Plugins.ts`, `core/PluginFolder.ts` |
-| Recuperación sin plugins (CLI y supervisor) | `core/Recovery.ts`, `cli.ts` |
-| `State` y `Composition`: registros que se reconstruyen | `core/State.ts` |
-| Registros: tools, modelos, prompt, hooks, tipos de evento, proyecciones, reacciones | `core/Registry.ts` |
-| `PluginHost` (load / replace / unload por `Scope`), `PluginLoader` (directorios) | `core/PluginHost.ts`, `core/PluginLoader.ts` |
-| Motor de workflows de Effect sobre la base de datos | `core/LogWorkflowEngine.ts` |
-| Eventos en vivo, abort en memoria, resolución de módulos, almacenamiento | `core/Events.ts`, `core/AbortSignals.ts`, `core/ModuleResolution.ts`, `core/Storage.ts` |
-| API pública y supervisor | `Pie.ts`, `Supervisor.ts` |
+| Session log as a tree (single source of truth) | `core/Log.ts` |
+| Agent program: events, `evolve`, `decide`, view for the model | `core/Agent.ts` |
+| Runtime: tick, command execution, reactions, per-database lock, draining | `core/Runtime.ts` |
+| Plugin configuration log | `core/ConfigLog.ts` |
+| Plugin manager: folder + host, seeding, validation, apply before each step, snapshots, rollback, safe mode, required plugins | `core/Plugins.ts`, `core/PluginFolder.ts` |
+| Recovery without plugins (CLI and supervisor) | `core/Recovery.ts`, `cli.ts` |
+| `State` and `Composition`: registries that are rebuilt | `core/State.ts` |
+| Registries: tools, models, prompt, hooks, event types, projections, reactions | `core/Registry.ts` |
+| `PluginHost` (load / replace / unload per `Scope`), `PluginLoader` (directories) | `core/PluginHost.ts`, `core/PluginLoader.ts` |
+| Effect workflow engine on the database | `core/LogWorkflowEngine.ts` |
+| Live events, in-memory abort, module resolution, storage | `core/Events.ts`, `core/AbortSignals.ts`, `core/ModuleResolution.ts`, `core/Storage.ts` |
+| Public API and supervisor | `Pie.ts`, `Supervisor.ts` |
 
 ## Plugins
 
-Como pi, el modelo ve pocas tools (read, write, edit y bash) y hace el resto con bash. Los cambios en la carpeta de plugins se aplican solos antes del siguiente paso. Cómo escribir un plugin: `docs/PLUGINS.md`.
+As in pi, the model sees few tools (read, write, edit and bash) and does the rest with bash. Changes in the plugins folder apply by themselves before the next step. How to write a plugin: `docs/PLUGINS.md`.
 
-Viven en `<home>/plugins/<id>/` (editables por el agente; se aplican solos
-antes del siguiente paso). Un hogar nuevo se siembra desde `packages/sdk/plugins/<id>/`.
+They live in `<home>/plugins/<id>/` (editable by the agent; they apply by
+themselves before the next step). A new home is seeded from `packages/sdk/plugins/<id>/`.
 
-| Plantilla | Sembrada por defecto | Qué hace |
+| Template | Seeded by default | What it does |
 |---|---|---|
-| `opencode-go` | Sí | Modelos de OpenCode Go |
-| `system-prompt` | Sí | Prompt base y entorno de la sesión |
-| `context-files` | Sí | `~/.pie/AGENTS.md` y `AGENTS.md`/`CLAUDE.md` de la raíz al cwd |
-| `coding-tools` | Sí | Las tools del modelo, como pi: read, write, edit y bash (300 s por defecto) |
-| `self` | Sí | Sin tools: la guía con las rutas (plugins, SDK, docs) y cómo ver o deshacer cambios con la CLI `pie` |
-| `todo` | No (plantilla de ejemplo) | Lista de tareas como eventos, con proyección, vista y panel web |
-| `web` | La app | Servidor local con token, API, SSE, `shell.html` con huecos y menú de recuperación; guía en su `README.md` |
-| `web-chat` | La app | El chat de la interfaz web |
+| `opencode-go` | Yes | OpenCode Go models |
+| `system-prompt` | Yes | Base prompt and session environment |
+| `context-files` | Yes | `~/.pie/AGENTS.md` and `AGENTS.md`/`CLAUDE.md` from the root to the cwd |
+| `coding-tools` | Yes | The model's tools, as in pi: read, write, edit and bash (300 s by default) |
+| `self` | Yes | No tools: the guide with the paths (plugins, SDK, docs) and how to see or undo changes with the `pie` CLI |
+| `todo` | No (example template) | Task list as events, with projection, view and web panel |
+| `web` | The app | Local server with token, API, SSE, `shell.html` with slots and recovery menu; guide in its `README.md` |
+| `web-chat` | The app | The web interface chat |
 
-Plugins del host (en memoria, no editables desde la carpeta): `sdk-guard` y los
-que pase quien embebe Pie (`Pie.layer({ plugins })`, p. ej. modelos falsos en
-los tests). App lista para usar: `pie serve --home .pie --cwd .`.
+Host plugins (in memory, not editable from the folder): `sdk-guard` and the ones
+passed by whoever embeds Pie (`Pie.layer({ plugins })`, e.g. fake models in
+tests). Ready-to-use app: `pie serve --home .pie --cwd .`.
 
-## Pendiente
+## Pending
 
-Compactación, aprobaciones (el motor ya tiene `DurableDeferred`), skills,
-subagentes (workflows hijos), eventos de reintento visibles, Postgres,
-instantáneas de proyecciones.
+Compaction, approvals (the engine already has `DurableDeferred`), skills,
+subagents (child workflows), visible retry events, Postgres, projection
+snapshots.
 
-## Pruebas
+## Tests
 
-| Archivo | Qué prueba |
+| File | What it tests |
 |---|---|
-| `test/core.test.ts` | `State`, `PluginHost`, carga desde archivos |
-| `test/agent.test.ts` | Bucle sobre el log: tools, busy, followUp, steer, nulls, ids repetidos, tool inexistente, hook que deniega, reintentos del modelo, abort; `todo` con bifurcación y adds paralelos; reacciones; automodificación (editar la carpeta + `restart`, rechazo de plugin roto, escritura en el SDK denegada) |
-| `test/coding-tools.test.ts` | read, write, edit, bash y `AGENTS.md` |
-| `test/durability.test.ts` | SIGKILL con SQLite en un proceso real: sin repetir el modelo, tool idempotente repetida, no idempotente «outcome unknown» |
-| `test/self-modify.test.ts` | Proceso real, plugins fuera del repo: un cambio roto se rechaza y uno válido se usa en el mismo run, sin reiniciar |
-| `test/recovery.test.ts` | Instantáneas, rollback y deshacerlo, modo seguro, obligatorios, cambios hechos con Pie apagado; el supervisor revierte solo un plugin que tumba el arranque; la CLI ve y deshace |
-| `test/web.test.ts` | Token, API, prompt de punta a punta, SSE, proyecciones, añadir un plugin de UI, editar `web/shell.html`, y deshacer ambos |
-| `test/workflow.test.ts` | Workflow de Effect con SIGKILL: actividades no repetidas, reloj que mantiene su hora, aprobación, resultado guardado |
-| `test/OpenCodeGo.live.test.ts` | Solo con `PIE_LIVE=1`: DeepSeek v4.1 Flash real |
+| `test/core.test.ts` | `State`, `PluginHost`, loading from files |
+| `test/agent.test.ts` | Loop over the log: tools, busy, followUp, steer, nulls, repeated ids, missing tool, denying hook, model retries, abort; `todo` with forking and parallel adds; reactions; self-modification (editing the folder, applied before the next step; refusal of a broken plugin; write to the SDK denied) |
+| `test/coding-tools.test.ts` | read, write, edit, bash and `AGENTS.md` |
+| `test/durability.test.ts` | SIGKILL with SQLite in a real process: model not repeated, idempotent tool repeated, non-idempotent «outcome unknown» |
+| `test/self-modify.test.ts` | Real process, plugins outside the repo: a broken change is refused and a valid one is used in the same run, without restarting |
+| `test/recovery.test.ts` | Snapshots, rollback and undoing it, safe mode, required plugins, changes made while Pie was off; the supervisor reverts by itself a plugin that breaks startup; the CLI shows and undoes |
+| `test/web.test.ts` | Token, API, end-to-end prompt, SSE, projections, adding a UI plugin, editing `web/shell.html`, and undoing both |
+| `test/workflow.test.ts` | Effect workflow with SIGKILL: activities not repeated, clock keeps its time, approval, stored result |
+| `test/OpenCodeGo.live.test.ts` | Only with `PIE_LIVE=1`: real DeepSeek v4.1 Flash |
 
-Prueba manual: `node --no-warnings packages/sdk/test/support/live-run.ts <cwd> "<prompt>"`.
+Manual test: `node --no-warnings packages/sdk/test/support/live-run.ts <cwd> "<prompt>"`.

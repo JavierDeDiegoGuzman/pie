@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="es">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -85,14 +85,14 @@ function Recovery({ onClose }) {
   if (!info) return html`<div class="pie-menu">…</div>`
   return html`<div class="pie-menu">
     <div style="display:flex;gap:8px;margin-bottom:8px">
-      <button disabled=${busy || !info.history.some((h) => h.type === "plugins/snapshot" && h.seq < info.head)} onClick=${() => act("/api/plugins/undo")}>Deshacer el último cambio</button>
-      <button disabled=${busy || info.head === info.lastGood} onClick=${() => act("/api/plugins/rollback", { toSeq: info.lastGood, reason: "web: back to last good" })}>Volver a la última buena (#${info.lastGood})</button>
-      <button onClick=${onClose}>Cerrar</button>
+      <button disabled=${busy || !info.history.some((h) => h.type === "plugins/snapshot" && h.seq < info.head)} onClick=${() => act("/api/plugins/undo")}>Undo the last change</button>
+      <button disabled=${busy || info.head === info.lastGood} onClick=${() => act("/api/plugins/rollback", { toSeq: info.lastGood, reason: "web: back to last good" })}>Back to the last good one (#${info.lastGood})</button>
+      <button onClick=${onClose}>Close</button>
     </div>
-    <div style="color:var(--muted);font-size:12px">Si la interfaz entera se rompe: <code>pie rollback --db … --last-good</code> o arranca con <code>PIE_SAFE=1</code>.</div>
+    <div style="color:var(--muted);font-size:12px">If the whole interface breaks: <code>pie rollback --db … --last-good</code> or start with <code>PIE_SAFE=1</code>.</div>
     <ul style="padding-left:16px">${[...info.history].reverse().map((h) => html`<li>
       <b>#${h.seq}</b> ${h.at.slice(0, 16).replace("T", " ")} · ${h.note}
-      ${h.seq < info.head && h.type === "plugins/snapshot" ? html` <a href="#" onClick=${(e) => { e.preventDefault(); act("/api/plugins/rollback", { toSeq: h.seq, reason: "web: rollback" }) }}>volver aquí</a>` : ""}
+      ${h.seq < info.head && h.type === "plugins/snapshot" ? html` <a href="#" onClick=${(e) => { e.preventDefault(); act("/api/plugins/rollback", { toSeq: h.seq, reason: "web: rollback" }) }}>go back here</a>` : ""}
     </li>`)}</ul>
   </div>`
 }
@@ -106,22 +106,22 @@ function App() {
   const toggle = (what) => setOpen(open === what ? "" : what)
   return html`<div class=${"pie-app" + (open ? ` ${open}-open` : "")}>
     <div class="pie-header">
-      <button class="pie-nav-toggle" onClick=${() => toggle("nav")} aria-label="Sesiones">☰</button>
+      <button class="pie-nav-toggle" onClick=${() => toggle("nav")} aria-label="Sessions">☰</button>
       <h1>Pie</h1>
       <${Slot} name="header" />
       <span class="spacer"></span>
       <button class="pie-nav-toggle" onClick=${() => toggle("panel")} aria-label="Panel">▤</button>
-      <button onClick=${() => setMenu(!menu)}>Plugins y deshacer</button>
+      <button onClick=${() => setMenu(!menu)}>Plugins & undo</button>
     </div>
     <div style="display:flex;flex-direction:column;min-height:0">
       ${errors.map(([owner, message]) => html`<div class="pie-banner">
-        <div style="flex:1"><b>El módulo de “${owner}” ha fallado.</b><pre>${message}</pre></div>
-        <button onClick=${() => api.post("/api/plugins/remove", { id: owner })}>Desactivar ${owner}</button>
-        <button onClick=${() => api.post("/api/plugins/undo")}>Deshacer el último cambio</button>
+        <div style="flex:1"><b>The “${owner}” module failed.</b><pre>${message}</pre></div>
+        <button onClick=${() => api.post("/api/plugins/remove", { id: owner })}>Disable ${owner}</button>
+        <button onClick=${() => api.post("/api/plugins/undo")}>Undo the last change</button>
       </div>`)}
       <div class="pie-body" style="flex:1;min-height:0">
         <div class="pie-sidebar"><${Slot} name="sidebar" /></div>
-        <div class="pie-main"><${Slot} name="main" fallback=${html`<div class="pie-empty">Ningún plugin ocupa el hueco “main”. Usa “Plugins y deshacer”.</div>`} /></div>
+        <div class="pie-main"><${Slot} name="main" fallback=${html`<div class="pie-empty">No plugin fills the “main” slot. Use “Plugins & undo”.</div>`} /></div>
         <div class="pie-panel"><${Slot} name="panel" /></div>
       </div>
     </div>

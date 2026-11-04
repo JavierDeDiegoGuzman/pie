@@ -1,0 +1,6 @@
+flowchart LR
+  opt["Pie.layer({ storage, reload })"] --> mem & lite & pg
+  mem["Storage.memory<br/>SQLite :memory:"] --> u1["tests · ephemeral agents"]
+  lite["Storage.sqlite(file)<br/>lock: one runtime per file"] --> u2["local · CLI · single-process server"]
+  pg["Postgres / MySQL (pending)"] --> u3["server"]
+  opt --> hot["reload: hot<br/>applies in the process"] & rs["reload: restart<br/>Supervisor + exitOnRestart"]

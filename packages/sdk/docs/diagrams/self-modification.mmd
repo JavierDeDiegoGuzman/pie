@@ -1,0 +1,23 @@
+sequenceDiagram
+  autonumber
+  participant M as LLM
+  participant F as .pie/plugins/
+  participant R as Runtime
+  participant P as Plugins
+  participant C as Config log
+  participant H as PluginHost
+  M->>F: read / edit / write (e.g. web/shell.html)
+  Note over R: before the next model call
+  R->>P: sync(session)
+  P->>F: did the folder change?
+  P->>P: import + setup of the changed plugins in a throwaway composition
+  alt any of them fails
+    P-->>R: «NOT applied» + errors
+  else all of them load
+    P->>C: plugins/snapshot {files, hash, reason}
+    P->>H: replace (new Scope, closes the old one)
+    P-->>R: «applied» + snapshot number
+  end
+  R->>R: notice event in the session
+  R->>M: model request with the notice as a message and the new tools
+  Note over R: if Pie crashes twice at startup, the supervisor restores the last good snapshot

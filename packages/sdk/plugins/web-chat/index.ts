@@ -40,7 +40,7 @@ export default Plugin.define({
         }, [tick])
         const create = () => api.post("/api/sessions", {}).then((s: any) => setSession(s.id))
         return html`<div class="sessions">
-          <button onClick=${create}>+ Nueva sesión</button>
+          <button onClick=${create}>+ New session</button>
           ${[...sessions].reverse().map((s: any) => html`<button class=${s.id === current ? "active" : ""} onClick=${() => setSession(s.id)}>
             ${s.cwd.split("/").pop() || s.cwd}<br/><small style="color:var(--muted)">${new Date(s.createdAt).toLocaleString()}</small>
           </button>`)}
@@ -53,7 +53,7 @@ export default Plugin.define({
           case "user":
             return html`<div class="msg user">${d.text}</div>`
           case "model/responded":
-            return html`<div class="msg assistant">${d.text}${d.finishReason === "aborted" ? html` <i>(interrumpido)</i>` : ""}${
+            return html`<div class="msg assistant">${d.text}${d.finishReason === "aborted" ? html` <i>(interrupted)</i>` : ""}${
               d.toolCalls.map((c: any) => html`<div class="tool">→ ${c.name}</div>`)
             }</div>`
           case "tool/finished":
@@ -62,7 +62,7 @@ export default Plugin.define({
             return html`<details class=${"tool notice" + (d.text.includes("NOT applied") ? " error" : "")}><summary>Pie: ${d.text.split("\n")[0].slice(0, 120)}</summary><pre>${d.text}</pre></details>`
           case "run/ended":
             return html`<div class="run-end">— ${d.status}${d.message ? `: ${d.message}` : ""} ·
-              <span class="fork" onClick=${() => api.post(`/api/sessions/${session}/navigate`, { eventId: event.id })}>continuar desde aquí</span> —</div>`
+              <span class="fork" onClick=${() => api.post(`/api/sessions/${session}/navigate`, { eventId: event.id })}>continue from here</span> —</div>`
           default:
             return rendererFor(event.type) ? html`<${EventView} event=${event} />` : null
         }
@@ -82,7 +82,7 @@ export default Plugin.define({
         useEffect(() => {
           if (log.current) log.current.scrollTop = log.current.scrollHeight
         }, [events.length, streaming])
-        if (!session) return html`<div class="pie-empty">Crea una sesión en la barra lateral.</div>`
+        if (!session) return html`<div class="pie-empty">Create a session in the sidebar.</div>`
         const running = state?.running
         const send = () => {
           if (!text.trim()) return
@@ -95,14 +95,14 @@ export default Plugin.define({
             ${streaming ? html`<div class="msg assistant streaming">${streaming}</div>` : ""}
           </div>
           <div class="chat-input">
-            <textarea value=${text} placeholder=${running ? "Trabajando… lo que escribas se entrega como steer" : "Escribe una tarea"}
+            <textarea value=${text} placeholder=${running ? "Working… what you type is delivered as a steer" : "Type a task"}
               onInput=${(e: any) => setText(e.target.value)}
               onKeyDown=${(e: any) => {
                 // Phones: Enter is a new line (send with the button). Desktop: Enter sends, Shift+Enter is a new line.
                 if (e.key === "Enter" && !e.shiftKey && !touch) { e.preventDefault(); send() }
               }} />
-            ${running ? html`<button onClick=${() => api.post(`/api/sessions/${session}/abort`)}>Abortar</button>` : ""}
-            <button onClick=${send}>Enviar</button>
+            ${running ? html`<button onClick=${() => api.post(`/api/sessions/${session}/abort`)}>Abort</button>` : ""}
+            <button onClick=${send}>Send</button>
           </div>
         </div>`
       }

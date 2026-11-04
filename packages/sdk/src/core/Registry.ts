@@ -133,7 +133,7 @@ const emptyHooks = (): HookTable => ({ context: [], "tool.before": [], "tool.aft
 
 // ---------------------------------------------------------------------------
 // Plugin state as events: event types (extend), projections (derive),
-// reactions (react). See docs/EVENTOS.md.
+// reactions (react). See docs/EVENTS.md.
 // ---------------------------------------------------------------------------
 
 export interface EventTypeDefinition {

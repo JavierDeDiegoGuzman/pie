@@ -1,24 +1,24 @@
 erDiagram
-  pie_sessions ||--o{ pie_events : "árbol (parent_id)"
-  pie_sessions ||--o{ pie_cursors : "reacciones"
+  pie_sessions ||--o{ pie_events : "tree (parent_id)"
+  pie_sessions ||--o{ pie_cursors : "reactions"
   pie_events {
-    text id PK "determinista"
+    text id PK "deterministic"
     text session_id
     text parent_id
     int seq
-    text type "núcleo o plugin/evento"
+    text type "core or plugin/event"
     json data
   }
   pie_sessions {
     text id PK
     text cwd
     text model
-    text leaf_id "cabeza de la rama"
+    text leaf_id "head of the branch"
   }
   pie_config {
     int seq PK
-    text type "plugin/installed|removed|disabled|enabled"
-    json data "con el código fuente"
+    text type "plugins/snapshot|config/good"
+    json data "the whole plugins folder"
   }
   pie_cursors {
     text reaction_id PK

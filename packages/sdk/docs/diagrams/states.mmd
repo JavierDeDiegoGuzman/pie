@@ -1,0 +1,11 @@
+stateDiagram-v2
+  [*] --> Idle
+  Idle --> Running: prompt() / steer() / followUp()
+  Running --> Running: steer() / followUp() → input/queued
+  Running --> Waiting: model/failed → WakeAt(retryAt)
+  Waiting --> Running: wake-up timer
+  Running --> Idle: run/ended completed
+  Running --> Idle: abort/requested → run/ended aborted
+  Running --> Idle: 3 failures → run/ended failed
+  Running --> Down: the process dies
+  Down --> Running: restart → fold log → decide

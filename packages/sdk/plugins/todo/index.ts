@@ -97,12 +97,12 @@ export default Plugin.define({
         const Todos = () => {
           const state = useProjection(useSession(), "todo")
           if (!state || state.items.length === 0) return null
-          return html`<div><h3 style="margin:0 0 8px;font-size:13px">Tareas</h3>${
+          return html`<div><h3 style="margin:0 0 8px;font-size:13px">Tasks</h3>${
             state.items.map((i: any) => html`<div style=${i.done ? "color:var(--muted);text-decoration:line-through" : ""}>#${i.id} ${i.text}</div>`)
           }</div>`
         }
         ui.slot("panel", Todos)
-        ui.event("todo/added", ({ event }: any) => html`<div class="tool">+ tarea: ${event.data.text}</div>`)
+        ui.event("todo/added", ({ event }: any) => html`<div class="tool">+ task: ${event.data.text}</div>`)
       })
 
       yield* ctx.hook("context", (event) =>
