@@ -3,22 +3,37 @@
 What is durable is always events; what is live is always effects derived from
 them. Diagrams in [architecture.md](architecture.md).
 
-## Two logs, one database
+## One log
 
-| Log | Table | What it stores | Shape |
-|---|---|---|---|
-| Session | `pie_events` | Everything that happens in a session: core and plugins | Tree; the current branch goes from the root to `leaf_id` |
-| Configuration | `pie_config` | Snapshots of the plugins folder (`plugins/snapshot`) and good-configuration marks (`config/good`) | Linear |
+Everything that happens in a session, core and extensions, is an event in
+`pie_events`: a tree, whose current branch goes from the root to the session's
+`leaf_id`. Every event has a deterministic id and is appended idempotently:
+repeating a step after a restart never duplicates anything.
 
-Every event has a deterministic id and is appended idempotently: repeating a
-step after a restart never duplicates anything.
+## The agent loop, written over the log (`core/Agent.ts`)
 
-## The agent as an Elm program (`core/Agent.ts`)
+pi's loop is ordinary code, with the conversation in memory and the session
+file as a record of what happened:
 
 ```
-evolve(state, event) → state       pure
-decide(state, now)   → commands    pure
+loop: call the model → append its message → run its tool calls → append the results
+      → deliver steering → stop when there are no tool calls and no follow-ups
 ```
+
+Pie runs the same loop, but the log is the truth and the loop is two pure
+functions over it:
+
+```
+evolve(state, event) → state       how each event changes the state
+decide(state, now)   → commands    what is missing: call the model, run a tool, deliver, end, wait
+```
+
+The runtime executes the commands and their results come back as events. The
+price is that the loop is spread over two functions instead of one `while`; what
+it buys is that resuming after a crash is just another step (fold the log, ask
+`decide`), and that the code of the loop may change between two steps of a run:
+`decide` reads only the log, so a program that restarts into new code in the
+middle of a run carries on.
 
 Core events:
 
@@ -32,7 +47,7 @@ Core events:
 | `abort/requested` | Durable abort |
 | `run/ended` | `completed`, `failed` or `aborted` (no turn limit: it stops with abort) |
 | `model/selected` | Model change |
-| `notice` | Something Pie tells the model before a step (plugin changes applied or refused); the model sees it as a message |
+| `notice` | Something the host told the model before a step; the model sees it as a message (written by earlier versions) |
 
 Commands returned by `decide`: `CallModel`, `RunTool`, `Deliver`, `EndRun` and
 `WakeAt` (nothing to do until a given time: the runtime schedules a wake-up
@@ -57,81 +72,43 @@ tick(session) = fold the branch → decide → execute what is pending → resul
 It fires when an event is appended, when a `WakeAt` is due and when the process
 starts (all open runs resume). It is *level-triggered*: work in progress is
 tracked in memory and every event has a deterministic id, so repeating a tick
-never duplicates work. A lock in the database (`pie_lock`) guarantees a single
-runtime per database.
+never duplicates work. The database is opened in SQLite's exclusive mode: one process per database,
+and a second one fails at startup.
 
-## Plugins: effects that register functions over events
+## Extensions: effects that register functions over events
 
-A plugin is an `Effect` with its own `Scope`. What it registers goes away with
-it; the events it emitted stay in the log.
+An extension is an `Effect` with its own `Scope`. What it registers goes away
+with it; the events it emitted stay in the log.
 
 | Level | API | What it does | Can it change what the core does? |
 |---|---|---|---|
-| extend | `ctx.events({ added: schema })` | Its own event types (`<plugin>/added`) | No |
+| extend | `ctx.events({ added: schema })` | Its own event types (`<extension>/added`) | No |
 | derive | `ctx.projection({ id, initial, on })` | State as a fold of the branch; recomputed, never stored | No |
 | react | `ctx.react({ id, on, run })` | Acts after the event is in the log; durable cursor per session | No |
 | view | `ctx.hook("context", …)` | What it adds to the model's context | No |
-| policy | `ctx.hook("tool.before", …)` | Allow or deny a tool | Yes: trusted plugins only |
+| policy | `ctx.hook("tool.before", …)` | Allow or deny a tool | Yes |
 
 Tools emit with `tool.emit(type, data)`; reactions, with `r.emit`. Events record
 **facts**, not values computed from the state: tools in the same step run in
 parallel, so ids, counters and totals are derived in the projection (the `todo`
-plugin is the example).
+extension is the example). A program reads a projection with
+`session.projection(id)`.
 
-## Self-modification and rollback
+## Restarts, and programs that change themselves
 
-**The SDK is fixed; every plugin can be modified.** Each Pie installation has a
-home (`.pie`): `pie.db` (sessions and configuration log) and `plugins/`, one
-folder per plugin with its `index.ts` and whatever it needs (the `web` plugin
-keeps its `shell.html` and `ui-sdk.js` there). A new home is seeded from the
-SDK templates (`packages/sdk/plugins/`).
+One process owns a database: `Storage.sqlite` opens the file in SQLite's
+exclusive mode, so a second process fails at startup with `StorageLocked`, and
+the operating system releases the file when the owner ends, however it ends.
 
-As in pi, the prompt tells the agent where its plugins, the SDK (read-only), the
-templates and the documentation are. The agent reads and edits them with its
-normal tools (`read`, `edit`, `write`). There is no tool to apply them and no
-restart: as in OpenCode or the DeepSeek Harness, Pie applies the changes by
-itself at a clean point (before the next step of any session, never in the
-middle of a tool):
-
-```
-before each model call: did the folder change?
-  → validate the changed plugins in a throwaway composition
-  → if they load: plugins/snapshot (the whole folder) and they are applied in this process
-  → if not: nothing is applied
-  → in both cases, a `notice` event in the session: the agent reads it as a
-    message from Pie (applied, or the errors) and the chat shows it
-```
-
-`plugins.json` sets the order and the disabled plugins. A host plugin
-(`sdk-guard`, outside the folder) denies `write`/`edit` inside the SDK; `bash`
-could get around it, so it is a barrier for the normal path, not a sandbox.
-
-Ways to roll back (all of them restore a snapshot of the folder and record it as
-a new snapshot, so they can be undone too):
-
-| Path | How | Depends on plugins |
-|---|---|---|
-| Automatic | After running fine for a while, or when a run completes, `config/good` is appended. If the process crashes twice in a row right after starting, the supervisor restores the last good one | No |
-| Agent | `pie explain` / `pie rollback` with bash; applied before its next step | No (bash only) |
-| Web interface | «Plugins & undo» menu and broken-module banner («Disable») | Yes (`web`) |
-| Terminal | `pie explain`, `pie rollback --to N` or `--last-good` (with `--home`) | No |
-| Safe mode | `PIE_SAFE=1`: loads the SDK templates instead of the folder | No |
-
-Changes made by hand while Pie is off are recorded at startup.
-
-## Web interface (`web` and `web-chat` plugins)
-
-- The `web` plugin serves on 127.0.0.1 with a token: the base page (`header`,
-  `sidebar`, `main` and `panel` slots and the recovery menu), the browser SDK
-  (`@pie/ui`), Preact + htm with no build step, and the API with SSE.
-- Each plugin contributes a browser module with `ctx.ui(fn)`; `fn` is serialized
-  and receives the SDK. Each module is isolated: if it fails, the page says so
-  and offers to remove it or undo. Changes reach the page live.
-- The chat is another plugin (`web-chat`) and the task panel comes from `todo`.
-- The base page (header included) is `plugins/web/shell.html`: to change it,
-  edit that file; do not cover it from another plugin with CSS.
-- How to build UI with plugins: `plugins/web/README.md`. Browser module errors are stored in `<home>/web-errors.log`.
-- `pie serve --home .pie --cwd .` launches the app under the supervisor.
+Restarting is therefore always safe, and that is what lets a program that embeds
+Pie change itself. Its agent edits the program's source, a script checks the
+change (types, build, a boot test), commits it and ends the process; the service
+manager starts the new version and Pie resumes the run there. The agent reads
+the script's output and goes on. `sdk-guard` denies `write`/`edit` inside the
+installed SDK, so the agent changes the program, not Pie (`bash` could get
+around it: it is a barrier for the normal path, not a sandbox).
+[`examples/app`](https://github.com/JavierDeDiegoGuzman/pie/tree/main/examples/app)
+is a complete example.
 
 ## Effect workflows on the same database (`core/LogWorkflowEngine.ts`)
 
@@ -148,9 +125,6 @@ its original time across a restart.
 - Postgres/MySQL: the client is missing and `INSERT OR IGNORE` needs adapting.
 - Projections: recomputed by folding the whole branch on every read; very long
   sessions will need snapshots.
-- Hot reloading keeps old module versions in memory (Node does not unload ESM);
-  restarting Pie now and then frees them.
-- UI modules are not validated before they are installed (there is no browser on
-  the server): an error shows up on the page, which offers to remove it or undo.
-- The web interface is for one person, locally: a UI module has the same power
-  as the agent.
+- Data that is not part of a session (shared by every thread, like a project's
+  tasks) has no home in Pie yet: it lives in the program, or in files.
+- While Pie runs, nothing else can open its database, not even to read.

@@ -8,8 +8,8 @@ import logo from "../assets/pie.svg?raw"
 const base = import.meta.env.BASE_URL.replace(/\/?$/, "/")
 const repo = "https://github.com/JavierDeDiegoGuzman/pie"
 const npm = "https://www.npmjs.com/package/pie-agent"
-const command = "npx pie-agent serve"
-const pluginCode = `<span class="k">export default</span> Plugin.define({
+const command = "npm i pie-agent @pie-agent/plugins"
+const pluginCode = `<span class="k">export const</span> wordCount = Plugin.define({
   id: <span class="s">"word-count"</span>,
   setup: (ctx) =&gt; ctx.tools.transform((tools) =&gt; {
     tools.set(<span class="s">"word_count"</span>, defineTool({
@@ -29,9 +29,9 @@ const pluginCode = `<span class="k">export default</span> Plugin.define({
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Pie · pi, reimplemented on Effect</title>
-    <meta name="description" content="A coding agent that survives crashes and rewrites itself, with undo. pi's minimal core, rebuilt on Effect." />
+    <meta name="description" content="A durable coding agent you embed: it survives crashes, so your program can let it rewrite the program. pi's minimal core, on Effect." />
     <meta property="og:title" content="Pie · pi, reimplemented on Effect" />
-    <meta property="og:description" content="A coding agent that survives crashes and rewrites itself, with undo." />
+    <meta property="og:description" content="A durable coding agent you embed. It survives crashes, so it can rewrite the program it lives in." />
     <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
   </head>
   <body>
@@ -53,11 +53,11 @@ const pluginCode = `<span class="k">export default</span> Plugin.define({
       <section class="hero">
         <div class="hero-text">
           <p class="eyebrow"><span class="pi">π</span> + <span class="e">e</span> = pie</p>
-          <h1>A coding agent that <em>survives crashes</em> and <em>rewrites itself</em>. With undo.</h1>
+          <h1>A coding agent that <em>survives crashes</em> and <em>rewrites itself</em>.</h1>
           <p class="lede">
             Pie is <a href="https://pi.dev">pi</a>, reimplemented on <a href="https://effect.website">Effect</a>: a tiny core,
-            four tools, and everything else as plugins the agent can edit. Every step is an event in a log, so nothing is
-            lost and every change can be rolled back.
+            four tools, and everything else as extensions you pass in code. Every step is an event in a log, so a crash
+            or a restart loses nothing, and the program that embeds it can let it rewrite the program.
           </p>
           <div class="cta">
             <button class="cmd" data-copy={command} aria-label="Copy the install command">
@@ -100,7 +100,7 @@ const pluginCode = `<span class="k">export default</span> Plugin.define({
 
 <span class="bad">$ kill -9 4211</span>
 
-<span class="dim">$ pie serve --home .pie</span>
+<span class="dim">$ node agent.ts</span>
 <span class="dim">● resuming 1 open run from the log</span>
 <span class="tool">→ bash</span>   pnpm test                <span class="warn">outcome unknown</span>
 <span class="dim">  the model is told, checks the state, re-runs it</span>
@@ -127,7 +127,7 @@ const pluginCode = `<span class="k">export default</span> Plugin.define({
         <div class="term-card result">
           <div class="glyph logo-glyph" set:html={logo} />
           <h3>pie</h3>
-          <p>pi's simplicity, with crash-proof sessions, validated self-modification and undo for every change.</p>
+          <p>pi's simplicity, with crash-proof sessions, plugins you pick in code, and validated self-modification.</p>
         </div>
       </section>
 
@@ -135,16 +135,17 @@ const pluginCode = `<span class="k">export default</span> Plugin.define({
       <section class="band cream">
         <div class="split reverse">
           <div class="steps">
-            <div class="step"><b>1</b><div><h4>The agent edits a plugin</h4><p>Every plugin is a folder in <code>.pie/plugins/</code>: tools, prompts, models, even the web UI. It uses its normal <code>edit</code> tool.</p></div></div>
-            <div class="step"><b>2</b><div><h4>Pie validates it before the next step</h4><p>Loaded in a throwaway composition first. If it breaks, nothing changes and the agent gets the errors.</p></div></div>
-            <div class="step"><b>3</b><div><h4>Every change is a snapshot</h4><p>Roll back from the page, with <code>pie rollback</code>, or automatically when Pie stops starting.</p></div></div>
+            <div class="step"><b>1</b><div><h4>The agent edits your program</h4><p>Its working folder is the program's source: pages, server, tools, its own extensions. It uses its normal <code>edit</code> tool.</p></div></div>
+            <div class="step"><b>2</b><div><h4>A check gates the change</h4><p>Types, the build and a boot test. If it fails, nothing is applied and the agent reads the errors.</p></div></div>
+            <div class="step"><b>3</b><div><h4>Restart, and carry on</h4><p>The change is committed and the program restarts. Pie resumes the run in the new version, so the agent tells you it is done from there.</p></div></div>
           </div>
           <div>
             <p class="kicker cherry">Self-modifying</p>
-            <h2>It changes itself. You keep the undo button.</h2>
+            <h2>It can change the program it lives in.</h2>
             <p>
-              Ask for a new tool, a different prompt or a redesigned interface. The agent edits the plugin that owns it;
-              the SDK itself stays read-only, so there is always a working Pie to come back to.
+              Restarting loses nothing, so a program that embeds Pie can let its agent add a page, a tool or an
+              extension, and restart into it mid-run. Extensions are plain code you pass to <code>Pie.layer</code>;
+              the SDK itself stays read-only.
             </p>
 <pre class="code" set:html={pluginCode} />
           </div>
@@ -155,11 +156,11 @@ const pluginCode = `<span class="k">export default</span> Plugin.define({
       <section class="features">
         <h2 class="center">Everything outside the core is a plugin</h2>
         <div class="grid">
-          <article><h4>Events, not state</h4><p>Plugins add event types and fold them into projections. Branch a session and its state branches with it.</p></article>
+          <article><h4>Events, not state</h4><p>Extensions add event types and fold them into projections. Branch a session and its state branches with it.</p></article>
           <article><h4>Reactions with cursors</h4><p>React to events after they are in the log, exactly once per session, across restarts.</p></article>
           <article><h4>Model-visible means logged</h4><p>Every request records its system prompt and tools. You can always see what the model saw.</p></article>
-          <article><h4>A web UI you can rewrite</h4><p><code>pie serve</code> opens a local interface built from plugins, with a recovery menu that survives bad edits.</p></article>
-          <article><h4>SDK first</h4><p>Embed Pie in your Effect program: sessions, steering, branching, live events, workflows in the same database.</p></article>
+          <article><h4>One process per database</h4><p>SQLite in exclusive mode: a second process fails at startup, and a killed one releases the file at once.</p></article>
+          <article><h4>SDK first, no extensions built in</h4><p>Embed Pie in your Effect program with exactly the extensions you pass: any model, your tools, your policies. Sessions, steering, branching, live events.</p></article>
           <article><h4>Small context</h4><p>Four tools by default, like pi. The agent composes the rest with bash instead of paying for tool schemas every step.</p></article>
         </div>
       </section>

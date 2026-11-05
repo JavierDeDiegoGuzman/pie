@@ -1,0 +1,105 @@
+---
+title: Getting started
+description: Embed a durable agent in your program, pick its extensions, and let it change the program itself.
+---
+
+import { Aside, Card, CardGrid, LinkCard, Steps, TabItem, Tabs } from "@astrojs/starlight/components"
+
+Pie is two packages: the SDK, and the official extensions you pass to it.
+
+<CardGrid>
+  <Card title="pie-agent" icon="seti:typescript">The SDK: the event log, the agent loop, the runtime and the extension API. No extensions of its own.</Card>
+  <Card title="@pie-agent/plugins" icon="puzzle">The official extensions: an OpenCode Go model, pi's four tools, the base prompt, `AGENTS.md` files.</Card>
+</CardGrid>
+
+## Before you start
+
+- Node.js 22.18 or newer.
+- A model. The default is DeepSeek v4.1 Flash through [OpenCode Go](https://opencode.ai): Pie reads
+  the key from `OPENCODE_GO_API_KEY`, or from the credential [pi](https://pi.dev) stores in
+  `~/.pi/agent/auth.json`. [Any other model](../docs/sdk/#your-own-model-no-opencode-go) is an
+  extension of a dozen lines.
+
+## Run it
+
+<Tabs syncKey="how">
+<TabItem label="In your program" icon="seti:typescript">
+
+<Steps>
+
+1. Install the SDK and the extensions:
+
+   ```sh
+   npm install pie-agent @pie-agent/plugins effect @effect/platform-node
+   ```
+
+2. Pass the extensions in code. The SDK brings none, so what you pass is what runs:
+
+   ```ts title="agent.ts"
+   import { NodeRuntime } from "@effect/platform-node"
+   import { Effect } from "effect"
+   import { Pie, Storage } from "pie-agent"
+   import { codingTools, contextFiles, opencodeGo, systemPrompt } from "@pie-agent/plugins"
+
+   const program = Effect.gen(function*() {
+     const pie = yield* Pie.Pie
+     const session = yield* pie.create({ cwd: process.cwd(), model: "opencode-go/deepseek-v4.1-flash" })
+     yield* session.prompt("Add a test for src/math.ts")
+     const outcome = yield* session.awaitIdle // { status: "completed" | "failed" | "aborted" }
+     for (const event of yield* session.events) console.log(event.type)
+   })
+
+   const PieLive = Pie.layer({
+     storage: Storage.sqlite("pie.db"),
+     plugins: [opencodeGo, systemPrompt, contextFiles, codingTools]
+   })
+
+   NodeRuntime.runMain(program.pipe(Effect.provide(PieLive), Effect.scoped))
+   ```
+
+3. Run it with `node agent.ts`. Kill it halfway and run it again: the run resumes where it was.
+
+</Steps>
+
+</TabItem>
+<TabItem label="An app that changes itself" icon="laptop">
+
+<Steps>
+
+1. Create the example app from the repo: a chat (one thread, and a list of threads) whose agent
+   works on the app's own source.
+
+   ```sh
+   git clone https://github.com/JavierDeDiegoGuzman/pie && cd pie
+   pnpm install && pnpm build
+   examples/app/create.sh ~/pie-app
+   ```
+
+2. Start it, or run it as a service with `examples/app/pie-app.service`:
+
+   ```sh
+   cd ~/pie-app && HOST=127.0.0.1 PORT=4400 npm start
+   ```
+
+3. Open it and ask for a change to the app itself: "show the time under each message". The agent
+   edits the code and runs `npm run apply`, which checks the change (types, build, a boot test),
+   commits it and restarts. The run carries on in the new version and the page reloads by itself.
+
+</Steps>
+
+</TabItem>
+</Tabs>
+
+<Aside title="Why restarting is safe">
+  Every step is an event in a SQLite log that one process owns at a time. After a restart Pie folds
+  the log and does what was pending: a model call that never answered is made again, a tool that is
+  not safe to repeat is reported as "outcome unknown" instead of running twice. The code of the agent
+  may even have changed in between.
+</Aside>
+
+## Next
+
+<CardGrid>
+  <LinkCard title="Using the SDK" description="Choose extensions, bring any model, restart safely." href="../docs/sdk/" />
+  <LinkCard title="Writing extensions" description="Tools, events, projections, reactions and hooks." href="../docs/plugins/" />
+</CardGrid>

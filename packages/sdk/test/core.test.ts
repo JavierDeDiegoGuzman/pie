@@ -3,7 +3,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Effect, Exit, Layer, Schema, Scope } from "effect"
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { Composition, Core, defineTool, Plugin, PluginHost, PluginLoader, Registries } from "../src/index.ts"
+import { Composition, Core, defineTool, Plugin, PluginHost, Registries } from "../src/index.ts"
 
 const TestLayer = Core.layer.pipe(Layer.provideMerge(NodeServices.layer))
 
@@ -126,51 +126,5 @@ describe("PluginHost", () => {
       expect(events).toEqual([])
       yield* host.unload("lifecycle")
       expect(events).toEqual(["closed"])
-    }).pipe(Effect.provide(TestLayer)))
-})
-
-describe("PluginLoader", () => {
-  const dir = path.join(import.meta.dirname, ".tmp", "plugins")
-  const sdkIndex = path.join(import.meta.dirname, "..", "src", "index.ts")
-  const pluginSource = (id: string, tool: string) => `
-import { Effect, Schema } from "effect"
-import { Plugin, defineTool } from ${JSON.stringify(sdkIndex)}
-export default Plugin.define({
-  id: ${JSON.stringify(id)},
-  setup: (ctx) => ctx.tools.transform((tools) => {
-    tools.set(${JSON.stringify(tool)}, defineTool({
-      name: ${JSON.stringify(tool)},
-      description: "written by the agent",
-      parameters: Schema.Struct({}),
-      idempotent: true,
-      execute: () => Effect.succeed({ content: ${JSON.stringify(tool)} })
-    }))
-  })
-})
-`
-
-  it.effect("loads new files, replaces edited ones, keeps the old version on errors, unloads deleted ones", () =>
-    Effect.gen(function*() {
-      fs.rmSync(dir, { recursive: true, force: true })
-      fs.mkdirSync(dir, { recursive: true })
-      const loader = yield* PluginLoader
-      const file = path.join(dir, "word-count.ts")
-
-      fs.writeFileSync(file, pluginSource("word-count", "word_count"))
-      yield* loader.sync(dir)
-      expect(yield* toolNames).toEqual(["word_count"])
-
-      fs.writeFileSync(file, pluginSource("word-count", "word_count_v2"))
-      yield* loader.sync(dir)
-      expect(yield* toolNames).toEqual(["word_count_v2"])
-
-      fs.writeFileSync(file, "export default {{ this is not typescript")
-      const [status] = yield* loader.sync(dir)
-      expect(status?.error).toBeDefined()
-      expect(yield* toolNames).toEqual(["word_count_v2"])
-
-      fs.rmSync(file)
-      yield* loader.sync(dir)
-      expect(yield* toolNames).toEqual([])
     }).pipe(Effect.provide(TestLayer)))
 })

@@ -1,10 +1,9 @@
-# Writing a Pie plugin
+# Writing a Pie extension
 
-A plugin is a folder in the plugins folder (`<home>/plugins/<id>/`) with an
-`index.ts` whose default export is `Plugin.define({ id, setup })`. The id must
-equal the folder name. `index.ts` imports only `"effect"`, `"pie-agent"` and
-Node built-ins. Edit the files: Pie applies them before your next step (or tells
-you why it could not).
+An extension is `Plugin.define({ id, setup })`: a value you pass to
+`Pie.layer({ plugins })` (see [SDK.md](SDK.md)). `setup` is an Effect that runs in
+the extension's own Scope and registers what it adds. Extensions load in
+order; one whose setup fails fails the boot.
 
 ## What `setup` can do (`ctx`)
 
@@ -17,13 +16,11 @@ you why it could not).
 | policy | `ctx.hook("tool.before", fn)` | Allow or deny a tool call |
 | tools | `ctx.tools.transform((tools) => tools.set(name, defineTool(…)))` | Tools for the model |
 | prompt | `ctx.prompt.transform((parts) => parts.push({ key, text }))` | Parts of the system prompt |
-| models | `ctx.models.transform(…)` | Models (see the opencode-go plugin) |
-| web | `ctx.ui(fn)` | A browser module (see the web plugin's README.md) |
-| options | `ctx.options` | Options given by the app for this plugin |
-| Pie | `ctx.pie` | `plugins`, `registries`, `paths`, sessions |
+| models | `ctx.models.transform(…)` | Models (see the opencode-go plugin, or the example in [SDK.md](SDK.md)) |
+| options | `ctx.options` | Options passed with it: `{ plugin, options }` |
 
-Everything a plugin registers goes away with it; the events it emitted stay in
-the log.
+Everything an extension registers goes away with it; the events it emitted stay
+in the log. A program reads a projection with `session.projection(id)`.
 
 ## Example
 
@@ -32,7 +29,7 @@ import { Effect, Schema } from "effect"
 import { Plugin, defineTool } from "pie-agent"
 
 export default Plugin.define({
-  id: "notes", // must equal the folder name
+  id: "notes",
   setup: (ctx) => Effect.gen(function*() {
     yield* ctx.events({ added: Schema.Struct({ text: Schema.String }) })            // extend: event types
     const notes = yield* ctx.projection({                                            // derive: fold over events
@@ -56,7 +53,7 @@ export default Plugin.define({
 
 - Events record facts, not values computed from the current state: tool calls
   of one step run in parallel, so derive ids, counters and totals in the
-  projection (the `todo` template is a full example with a web panel).
+  projection (the `todo` extension is a full example).
 - Keep the tools the model sees few: each one costs context on every step. Prefer
   doing things with `bash` unless a tool adds something bash cannot (durability,
   events, a policy).

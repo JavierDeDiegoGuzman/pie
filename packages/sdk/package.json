@@ -1,7 +1,7 @@
 {
   "name": "pie-agent",
   "version": "0.1.0",
-  "description": "A durable, self-modifying coding agent on Effect: pi's minimal core, an event log you can replay, and every feature as an editable plugin.",
+  "description": "Pie's SDK: a durable agent runtime on Effect. An event log you can replay, pi's minimal core, and every feature a plugin.",
   "license": "MIT",
   "author": "Javier de Diego Guzmán",
   "repository": {
@@ -9,7 +9,7 @@
     "url": "git+https://github.com/JavierDeDiegoGuzman/pie.git",
     "directory": "packages/sdk"
   },
-  "homepage": "https://github.com/JavierDeDiegoGuzman/pie#readme",
+  "homepage": "https://javierdediegoguzman.github.io/pie/",
   "bugs": {
     "url": "https://github.com/JavierDeDiegoGuzman/pie/issues"
   },
@@ -35,27 +35,20 @@
     },
     "./package.json": "./package.json"
   },
-  "bin": {
-    "pie": "./dist/src/cli.js"
-  },
   "files": [
     "dist/src",
-    "plugins",
     "docs",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
   ],
   "scripts": {
-    "prepack": "node scripts/prepack.mjs"
+    "prepack": "node ../../scripts/prepack.mjs sdk"
   },
   "dependencies": {
-    "@effect/ai-openai-compat": "4.1.2",
     "@effect/platform-node": "4.1.2",
     "@effect/sql-sqlite-node": "4.1.2",
-    "effect": "4.1.2",
-    "htm": "^3.1.1",
-    "preact": "^11.1.1"
+    "effect": "4.1.2"
   },
   "publishConfig": {
     "access": "public",

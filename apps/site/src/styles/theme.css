@@ -3,6 +3,11 @@
   --sl-font: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
   --sl-font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
   --pie-serif: "Fraunces Variable", Georgia, serif;
+  --pie-cherry: #c42f4a;
+  --pie-gold: #e9a848;
+  --pie-night: #1a110c;
+  --pie-card: #241812;
+  --pie-line: #3e2e24;
 
   /* dark */
   --sl-color-accent-low: #3d1820;
@@ -16,8 +21,11 @@
   --sl-color-gray-5: #3e2e24;
   --sl-color-gray-6: #241812;
   --sl-color-black: #1a110c;
+  --sl-content-width: 46rem;
 }
 :root[data-theme="light"] {
+  --pie-card: #fff;
+  --pie-line: #eedcc2;
   --sl-color-accent-low: #f9dfe4;
   --sl-color-accent: #b02a42;
   --sl-color-accent-high: #6e1a29;
@@ -32,22 +40,131 @@
   --sl-color-black: #fff8ee;
 }
 
+/* -- type ------------------------------------------------------------------ */
 .sl-markdown-content :is(h1, h2, h3),
-h1#_top,
 .site-title {
   font-family: var(--pie-serif);
-  letter-spacing: -0.015em;
+  letter-spacing: -0.02em;
 }
-h1#_top { font-weight: 600; }
 .site-title { font-weight: 700; font-size: 1.35rem; }
+.content-panel:first-of-type { border-bottom: 0; }
 
-.sl-markdown-content table { font-size: 0.92em; }
-.sl-markdown-content code:not(pre code) { border-radius: 0.3em; }
-
-/* Diagrams have a white background: frame them so they read in dark mode too. */
-.sl-markdown-content img[src$=".svg"] {
-  border-radius: 0.6rem;
-  border: 1px solid var(--sl-color-gray-5);
-  background: #fff;
-  padding: 0.6rem;
+.sl-markdown-content h2 {
+  margin-top: 3rem;
+  padding-top: 1.6rem;
+  border-top: 1px dashed var(--pie-line);
+  font-size: 2rem;
+  font-weight: 600;
 }
+.sl-markdown-content h2::before {
+  content: "";
+  display: block;
+  width: 1.75rem;
+  height: 4px;
+  margin-bottom: 1rem;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--pie-cherry), var(--pie-gold));
+}
+.sl-markdown-content h3 { font-size: 1.35rem; font-weight: 600; }
+.sl-markdown-content .sl-anchor-link { opacity: 0; transition: opacity 0.15s; }
+.sl-markdown-content .sl-heading-wrapper:hover .sl-anchor-link { opacity: 1; }
+.sl-markdown-content strong { color: var(--sl-color-white); }
+.sl-markdown-content a:not(.card a, .sl-link-card a) {
+  text-decoration-color: color-mix(in srgb, var(--pie-gold) 70%, transparent);
+  text-decoration-thickness: 2px;
+  text-underline-offset: 3px;
+}
+
+/* -- inline code ------------------------------------------------------------- */
+.sl-markdown-content code:not(pre code) {
+  padding: 0.12em 0.4em;
+  border-radius: 0.35em;
+  border: 1px solid var(--pie-line);
+  background: color-mix(in srgb, var(--pie-gold) 10%, transparent);
+  color: var(--sl-color-white);
+  font-size: 0.86em;
+}
+
+/* -- tables: a card, with a warm header ------------------------------------- */
+.sl-markdown-content table {
+  display: table;
+  width: 100%;
+  font-size: 0.92em;
+  border-collapse: separate;
+  border-spacing: 0;
+  border: 1px solid var(--pie-line);
+  border-radius: 0.85rem;
+  overflow: hidden;
+  background: var(--pie-card);
+}
+.sl-markdown-content :is(th, td) { border-bottom: 1px solid var(--pie-line); padding: 0.65rem 0.9rem; vertical-align: top; }
+.sl-markdown-content tr:last-child td { border-bottom: 0; }
+.sl-markdown-content th {
+  background: color-mix(in srgb, var(--pie-gold) 14%, var(--pie-card));
+  font: 600 0.72rem var(--sl-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--sl-color-gray-2);
+}
+.sl-markdown-content td:first-child { color: var(--sl-color-white); }
+
+/* -- code blocks: dark, like the landing page, in both themes ----------------- */
+.sl-markdown-content .expressive-code { margin-block: 1.5rem; }
+.sl-markdown-content .expressive-code .frame {
+  border-radius: 0.9rem;
+  box-shadow: 0 18px 40px rgb(43 26 16 / 0.16);
+}
+
+/* -- diagrams: framed so they read in dark mode too --------------------------- */
+.sl-markdown-content img[src$=".svg"] {
+  border-radius: 0.9rem;
+  border: 1px solid var(--pie-line);
+  background: #fff;
+  padding: 0.8rem;
+  box-shadow: 0 18px 40px rgb(43 26 16 / 0.08);
+}
+
+/* -- asides, cards, steps ---------------------------------------------------- */
+.starlight-aside { border-radius: 0.8rem; border-inline-start-width: 4px; }
+.sl-markdown-content .card {
+  border-radius: 1rem;
+  border-color: var(--pie-line);
+  background: var(--pie-card);
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.sl-markdown-content .card:hover { transform: translateY(-2px); box-shadow: 0 18px 40px rgb(122 50 20 / 0.10); }
+.sl-markdown-content .card .title { font-family: var(--pie-serif); font-size: 1.25rem; }
+.sl-link-card { border-radius: 1rem !important; background: var(--pie-card); border-color: var(--pie-line) !important; }
+.sl-link-card:hover { border-color: var(--pie-cherry) !important; }
+.sl-link-card .title { font-family: var(--pie-serif); font-size: 1.2rem; }
+.sl-steps > li::before {
+  background: linear-gradient(135deg, var(--pie-cherry), #a3233b) !important;
+  color: #fff !important;
+  border: 0 !important;
+  font-family: var(--pie-serif);
+  font-weight: 600;
+}
+
+/* -- sidebar: section labels as kickers, the current page as a cherry pill ---- */
+.sidebar-content .group-label .large {
+  font: 600 0.72rem var(--sl-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--sl-color-gray-3);
+}
+.sidebar-content a { border-radius: 999px; padding-inline: 0.8rem; }
+.sidebar-content a[aria-current="page"] {
+  background: linear-gradient(90deg, var(--pie-cherry), #a3233b);
+  color: #fff;
+  font-weight: 600;
+}
+.sidebar-content ul ul { border-inline-start: 0; }
+
+/* -- the right-hand table of contents ---------------------------------------- */
+starlight-toc a[aria-current="true"] { color: var(--sl-color-accent); font-weight: 600; }
+starlight-toc h2 { font: 600 0.72rem var(--sl-font-mono); text-transform: uppercase; letter-spacing: 0.14em; color: var(--sl-color-gray-3); }
+
+/* -- pagination ---------------------------------------------------------------- */
+.pagination-links a { border-radius: 1rem; border-color: var(--pie-line); background: var(--pie-card); }
+.pagination-links a:hover { border-color: var(--pie-cherry); }
+.pagination-links .link-title { font-family: var(--pie-serif); font-size: 1.3rem; }

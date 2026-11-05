@@ -1,8 +1,41 @@
 # Changelog
 
-All notable changes to `pie-agent` are documented here. The format follows
+All notable changes to Pie (`pie-agent`, `@pie-agent/plugins`) are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/) (before 1.0, minor versions may break).
+
+## [Unreleased]
+
+Pie becomes an SDK you embed: extensions are passed in code, and a program that embeds Pie
+changes itself by restarting, which is safe at any moment.
+
+### Changed
+
+- Two packages. `pie-agent` is only the SDK: no extensions, no model, no CLI. The official
+  extensions (and the OpenCode Go provider) are `@pie-agent/plugins`.
+- Extensions are passed in code only: `Pie.layer({ storage, plugins: [opencodeGo, codingTools] })`.
+  An extension that fails to load fails the boot.
+- `Pie.layer` takes `storage` (default `Storage.memory`) instead of `home`.
+- One process per database is enforced by SQLite's exclusive locking mode instead of a heartbeat
+  row. A second process fails at startup with `StorageLocked`; before, a single failed heartbeat
+  let it take over a database another process was still using. Nothing else can open the file
+  while Pie runs, not even to read.
+
+### Added
+
+- `session.projection(id)`: the value of an extension's projection on the session's branch, so a
+  program can show it.
+- `examples/app`: a phone-first chat whose agent changes the app itself (`npm run apply`: check,
+  commit, restart), run as a systemd service.
+
+### Removed
+
+- The editable plugins folder and everything around it: seeding from templates, validation in a
+  throwaway composition, applying edits before the next step, safe mode, `required`, module
+  resolution for plugins without `node_modules`, `PluginLoader`.
+- `ctx.pie` and `ctx.ui`, the `web`, `web-chat` and `self` plugins, and the `pie` CLI
+  (`@pie-agent/cli`).
+- Undo: snapshots, the configuration log, rollback, the supervisor and `reload: "restart"`.
 
 ## [0.1.0] - 2026-11-04
 

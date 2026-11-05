@@ -1,7 +1,7 @@
 /**
- * Public SDK entry point.
+ * Public SDK entry point. The SDK has no extensions of its own: pass them in.
  *
- *   const PieLive = Pie.layer({ home: ".pie" })
+ *   const PieLive = Pie.layer({ storage: Storage.sqlite(".data/pie.db"), plugins: [opencodeGo, codingTools] })
  *   const pie = yield* Pie.Pie
  *   const session = yield* pie.create({ cwd, model: "opencode-go/deepseek-v4.1-flash" })
  *   yield* session.prompt("...")
@@ -9,26 +9,20 @@
  */
 import * as Package from "./core/Package.ts"
 import { randomUUID } from "node:crypto"
-import * as fs from "node:fs"
 import * as path from "node:path"
 import { NodeServices } from "@effect/platform-node"
-import { Context, Effect, Layer, type Scope, Stream } from "effect"
+import { Context, Effect, Layer, Stream } from "effect"
 import { AbortSignals } from "./core/AbortSignals.ts"
 import type * as Agent from "./core/Agent.ts"
-import { ConfigLog } from "./core/ConfigLog.ts"
 import * as Core from "./core/Core.ts"
 import { Events, type PieEvent } from "./core/Events.ts"
 import { EventLog, type LogEvent, type SessionInfo, type SessionNotFound } from "./core/Log.ts"
 import * as LogWorkflowEngine from "./core/LogWorkflowEngine.ts"
-import * as ModuleResolution from "./core/ModuleResolution.ts"
 import * as Plugin from "./core/Plugin.ts"
-type Plugin = Plugin.Plugin
 import { foldProjection, PluginHost } from "./core/PluginHost.ts"
 import { Registries } from "./core/Registry.ts"
-import { type HostEntry, Plugins } from "./core/Plugins.ts"
 import { Runtime, type SessionBusy } from "./core/Runtime.ts"
 import * as Storage from "./core/Storage.ts"
-import { RESTART_EXIT_CODE } from "./Supervisor.ts"
 
 export interface PromptOptions {
   /** Required while a run is active: queue the text instead of failing. */
@@ -51,6 +45,8 @@ export interface Session {
   readonly awaitIdle: Effect.Effect<Outcome | undefined>
   /** Events of the current branch, root first: the whole truth of the session. */
   readonly events: Effect.Effect<ReadonlyArray<LogEvent>>
+  /** The current value of an extension's projection on this session's branch (undefined if no such projection). */
+  readonly projection: <S = unknown>(projectionId: string) => Effect.Effect<S | undefined>
   /** Moves the session to an earlier event; the next prompt branches from there. */
   readonly navigate: (eventId: string | null) => Effect.Effect<void, SessionBusy>
   readonly setModel: (model: string) => Effect.Effect<void>
@@ -70,6 +66,7 @@ const make = Effect.gen(function*() {
   const log = yield* EventLog
   const runtime = yield* Runtime
   const events = yield* Events
+  const registries = yield* Registries
 
   const handle = (id: string): Session => ({
     id,
@@ -80,6 +77,12 @@ const make = Effect.gen(function*() {
     abort: Effect.orDie(runtime.abort(id)),
     awaitIdle: Effect.orDie(runtime.awaitIdle(id)),
     events: log.branch(id),
+    projection: <S>(projectionId: string) =>
+      Effect.gen(function*() {
+        const definition = (yield* registries.projections.get).get(projectionId)
+        if (!definition) return undefined
+        return foldProjection(definition, yield* log.branch(id)) as S
+      }),
     navigate: (eventId) => runtime.navigate(id, eventId).pipe(Effect.catchTag("SessionNotFound", Effect.die)),
     setModel: (model) => Effect.orDie(runtime.setModel(id, model)),
     state: Effect.orDie(runtime.state(id)),
@@ -94,50 +97,31 @@ const make = Effect.gen(function*() {
   })
 })
 
+/** An extension, or an extension with the options it reads from `ctx.options`. */
+export type PluginEntry = Plugin.Plugin | { readonly plugin: Plugin.Plugin; readonly options?: Readonly<Record<string, unknown>> | undefined }
+
 export interface LayerOptions {
   /**
-   * Pie's home (e.g. ".pie"): `pie.db` (sessions, configuration log) and
-   * `plugins/` (every plugin, editable by the agent, seeded from the SDK
-   * templates on first run). Without a home only host plugins load.
+   * The extensions, loaded in order: models, tools, prompt parts, hooks,
+   * events... The SDK brings none; the official ones are in @pie-agent/plugins.
+   * A failing extension fails the boot.
    */
-  readonly home?: string
-  /** Default: Storage.sqlite(<home>/pie.db), or Storage.memory without a home. */
+  readonly plugins?: ReadonlyArray<PluginEntry>
+  /** Where sessions are stored. Default Storage.memory: nothing survives the process. */
   readonly storage?: Storage.Storage
-  /** Templates copied into a new home, in load order. Default: DEFAULT_SEED. */
-  readonly seed?: ReadonlyArray<string>
-  /** Options for folder plugins, by id (e.g. { web: { port: 4100, cwd } }). */
-  readonly pluginOptions?: Readonly<Record<string, Readonly<Record<string, unknown>>>>
-  /** Host plugins: loaded from memory before the folder, not editable by the agent (tests, embedding apps). */
-  readonly plugins?: ReadonlyArray<Plugin | HostEntry>
-  /** Plugin ids that must load, or the boot fails (the supervisor then rolls back). */
-  readonly required?: ReadonlyArray<string>
-  /** Load the SDK templates instead of the plugins folder. Default: PIE_SAFE=1. */
-  readonly safe?: boolean
-  /** Mark the plugins snapshot good after this long running (ms), and after each completed run. Default 3000. */
-  readonly goodAfter?: number
-  /**
-   * How `plugins.restart` and rollbacks apply changes. "hot" (default): in this
-   * process. "restart": drain to a safe point and exit with RESTART_EXIT_CODE
-   * (with Supervisor.run and Pie.exitOnRestart). Edits the agent makes to the
-   * plugins folder always apply hot, before its next step.
-   */
-  readonly reload?: "hot" | "restart"
 }
-
-/** Templates seeded into a new home by default, in load order. */
-export const DEFAULT_SEED: ReadonlyArray<string> = ["opencode-go", "system-prompt", "context-files", "coding-tools", "self"]
 
 /** Root of the SDK package. */
 export const SDK_ROOT = Package.ROOT
 
-/** What the agent may read but not write: the SDK's code, its plugin templates, its docs and its manifest. */
-export const SDK_PROTECTED = ["src", "dist", "plugins", "docs", "package.json"].map((p) => path.join(SDK_ROOT, p))
+/** What the agent may read but not write: the SDK's code, its docs and its manifest. */
+export const SDK_PROTECTED = ["src", "dist", "docs", "package.json"].map((p) => path.join(SDK_ROOT, p))
 
 /**
- * Host plugin that keeps the SDK read-only: write and edit inside it are
- * denied. It is not in the plugins folder, so the agent cannot edit it. (A
- * shell command can still write anywhere the user can; this stops the normal
- * path, not a determined one.)
+ * Always loaded first: `write` and `edit` inside the installed SDK are denied,
+ * so an agent that changes the program it runs in edits that program, not
+ * Pie. (A shell command can still write anywhere the user can; this stops the
+ * normal path, not a determined one.)
  */
 const sdkGuard = Plugin.define({
   id: "sdk-guard",
@@ -149,128 +133,40 @@ const sdkGuard = Plugin.define({
         if (typeof target !== "string") return
         const resolved = path.resolve(event.cwd, target)
         if (SDK_PROTECTED.some((p) => resolved === p || resolved.startsWith(p + path.sep))) {
-          event.decision = {
-            _tag: "Deny",
-            reason: `Pie's SDK (${SDK_ROOT}) is read-only. Plugins live in your plugins folder; edit them there.`
-          }
+          event.decision = { _tag: "Deny", reason: `${resolved} is part of the installed Pie SDK and is read-only.` }
         }
       }))
 })
 
-export const layer = (options: LayerOptions) => {
-  ModuleResolution.register()
-  const home = options.home === undefined ? undefined : path.resolve(options.home)
-  if (home) fs.mkdirSync(home, { recursive: true })
-  const storage = options.storage ?? (home ? Storage.sqlite(path.join(home, "pie.db")) : Storage.memory)
-  const hostEntries: ReadonlyArray<HostEntry> = [
-    { plugin: sdkGuard },
-    ...(options.plugins ?? []).map((p) => ("plugin" in p ? p : { plugin: p }))
-  ]
-  let manager: Plugins["Service"] | undefined
+export const layer = (options: LayerOptions = {}) => {
+  const entries = [sdkGuard, ...(options.plugins ?? [])].map((p) => ("plugin" in p ? p : { plugin: p }))
 
-  const plugins = Layer.effect(Plugins, Effect.suspend(() => {
-    return Plugins.make({
-      home,
-      seed: options.seed ?? DEFAULT_SEED,
-      host: hostEntries,
-      pluginOptions: options.pluginOptions ?? {},
-      reload: options.reload ?? "hot",
-      safe: options.safe ?? process.env.PIE_SAFE === "1",
-      required: new Set(options.required ?? [])
-    })
-  }))
-
+  // Extensions load in order, then the runtime starts (resuming open runs and catching up reactions).
   const startup = Layer.effectDiscard(Effect.gen(function*() {
-    manager = yield* Plugins
-    const events = yield* Events
-    const runtime = yield* Runtime
-    // Edits to the plugins folder apply by themselves before the next step of any session.
-    yield* runtime.beforeStep(manager.sync)
-    yield* runtime.start
-    // The snapshot is "good" once Pie has been up for a while, and after each completed run.
-    const plugins = manager
-    yield* plugins.markGood.pipe(Effect.delay(options.goodAfter ?? 3000), Effect.forkScoped)
-    yield* events.stream().pipe(
-      Stream.filter((e) => e.type === "event" && e.event.type === "run/ended" && (e.event.data as Outcome).status === "completed"),
-      Stream.runForEach(() => plugins.markGood),
-      Effect.forkScoped
-    )
-  }))
-
-  // ctx.pie for plugins (the web UI is one); the plugin manager is reached lazily.
-  const api = Layer.effectDiscard(Effect.gen(function*() {
     const host = yield* PluginHost
-    const log = yield* EventLog
-    const runtime = yield* Runtime
-    const events = yield* Events
-    const registries = yield* Registries
-    yield* host.setApi({
-      sessions: {
-        list: log.listSessions,
-        create: ({ cwd, model }) => log.createSession({ id: randomUUID(), cwd, model }),
-        events: (id) => log.branch(id),
-        state: runtime.state,
-        prompt: (id, text, mode = "prompt") =>
-          mode === "prompt" ? runtime.prompt(id, text) : runtime.enqueue(id, mode, text),
-        abort: runtime.abort,
-        navigate: runtime.navigate,
-        setModel: runtime.setModel
-      },
-      live: events.stream(),
-      projection: (projectionId, sessionId) =>
-        Effect.gen(function*() {
-          const definition = (yield* registries.projections.get).get(projectionId)
-          if (!definition) return undefined
-          return foldProjection(definition, yield* log.branch(sessionId))
-        }),
-      registries,
-      plugins: new Proxy({} as Plugins["Service"], { get: (_, key) => (manager as any)[key] }),
-      paths: {
-        home,
-        plugins: home ? path.join(home, "plugins") : undefined,
-        sdk: SDK_ROOT,
-        templates: Package.TEMPLATES,
-        docs: Package.DOCS,
-        cli: Package.entry("cli")
-      }
-    })
+    for (const [i, entry] of entries.entries()) {
+      yield* host.load(entry.plugin, { options: entry.options, order: 100 * (i + 1) }).pipe(
+        Effect.catchTag("PluginLoadError", (e) => Effect.die(new Error(`extension "${e.id}" failed to load: ${e.message}`)))
+      )
+    }
+    yield* (yield* Runtime).start
   }))
 
   const base = Layer.mergeAll(
     Layer.effect(EventLog, EventLog.make),
-    Layer.effect(ConfigLog, ConfigLog.make),
     Layer.effect(Events, Events.make),
     Layer.effect(AbortSignals, AbortSignals.make)
   )
 
   return Layer.effect(Pie, make).pipe(
     Layer.provideMerge(startup),
-    Layer.provideMerge(plugins),
-    Layer.provideMerge(api),
     Layer.provideMerge(LogWorkflowEngine.layer),
     Layer.provideMerge(Layer.effect(Runtime, Runtime.make)),
     Layer.provideMerge(Core.layer),
     Layer.provideMerge(base),
-    Layer.provideMerge(storage),
+    Layer.provideMerge(options.storage ?? Storage.memory),
     Layer.provideMerge(NodeServices.layer)
   )
 }
-
-/**
- * For reload: "restart". Runs the program until a plugin change asks for a
- * restart, then exits the process with RESTART_EXIT_CODE so Supervisor.run
- * starts it again.
- */
-export const exitOnRestart = <A, E, R>(program: Effect.Effect<A, E, R>): Effect.Effect<A, E, R | Plugins | Runtime | Scope.Scope> =>
-  Effect.gen(function*() {
-    const manager = yield* Plugins
-    const runtime = yield* Runtime
-    yield* manager.restartRequested.pipe(
-      Effect.andThen(runtime.release),
-      Effect.andThen(Effect.sync(() => process.exit(RESTART_EXIT_CODE))),
-      Effect.forkScoped
-    )
-    return yield* program
-  })
 
 export { Runtime }

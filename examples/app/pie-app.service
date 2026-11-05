@@ -1,0 +1,18 @@
+# systemd unit for a VPS. Copy to ~/.config/systemd/user/pie-app.service (or /etc/systemd/system/),
+# adjust WorkingDirectory and HOST, then: systemctl --user enable --now pie-app
+# (user units keep running after logout with: loginctl enable-linger $USER)
+[Unit]
+Description=Pie app (a chat whose agent can change and restart it)
+After=network-online.target
+
+[Service]
+WorkingDirectory=%h/pie-app
+ExecStart=/usr/bin/env node --no-warnings src/main.ts
+Environment=HOST=127.0.0.1
+Environment=PORT=4400
+# The agent's restart tool exits the process; so does a crash. Either way, start it again.
+Restart=always
+RestartSec=1
+
+[Install]
+WantedBy=default.target

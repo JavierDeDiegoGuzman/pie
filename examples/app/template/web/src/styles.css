@@ -1,0 +1,26 @@
+:root { --bg: #fff8ee; --fg: #2b1a10; --muted: #8a6a52; --line: #eedcc2; --accent: #c42f4a; --bubble: #fbe4e8; }
+@media (prefers-color-scheme: dark) { :root { --bg: #1a110c; --fg: #fbf1e4; --muted: #a38b78; --line: #3e2e24; --bubble: #3d1820; } }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 16px/1.5 system-ui, sans-serif; }
+.app { display: flex; flex-direction: column; height: 100dvh; max-width: 760px; margin: 0 auto; }
+header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; padding-top: max(10px, env(safe-area-inset-top)); border-bottom: 1px solid var(--line); }
+header b { font-family: Georgia, serif; font-size: 20px; }
+.spacer { flex: 1; }
+button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; }
+.icon { font-size: 20px; padding: 4px 8px; }
+.link { color: var(--accent); }
+.threads { display: flex; flex-direction: column; border-bottom: 1px solid var(--line); max-height: 50dvh; overflow: auto; }
+.threads button { text-align: left; padding: 12px 16px; border-bottom: 1px solid var(--line); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.threads .active { font-weight: 600; }
+.threads .new { color: var(--accent); }
+main { flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.msg { white-space: pre-wrap; overflow-wrap: anywhere; max-width: 88%; }
+.msg.user { align-self: flex-end; background: var(--bubble); padding: 8px 12px; border-radius: 16px 16px 4px 16px; }
+.msg.agent { align-self: flex-start; }
+.msg.queued { opacity: .6; }
+.msg.queued::after { content: " · queued"; font-size: 11px; }
+.tool { font: 12px/1.4 ui-monospace, monospace; color: var(--muted); }
+.tool.error { color: var(--accent); }
+.composer { display: flex; gap: 8px; padding: 10px 12px; padding-bottom: max(10px, env(safe-area-inset-bottom)); border-top: 1px solid var(--line); }
+.composer textarea { flex: 1; resize: none; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 18px; padding: 8px 14px; max-height: 40dvh; field-sizing: content; }
+.composer button { width: 40px; height: 40px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 18px; align-self: flex-end; }

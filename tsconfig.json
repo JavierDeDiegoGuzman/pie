@@ -1,1 +1,1 @@
-{ "files": [], "references": [{ "path": "packages/sdk" }] }
+{ "files": [], "references": [{ "path": "packages/sdk" }, { "path": "packages/plugins" }] }
