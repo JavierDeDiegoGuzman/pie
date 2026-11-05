@@ -9,9 +9,10 @@ const sdk = path.resolve(here, "../../../packages/sdk")
 const out = path.resolve(here, "../src/content/docs")
 
 const pages = {
-  "PLUGINS.md": { slug: "docs/plugins", title: "Writing plugins", description: "The plugin API: events, projections, reactions, hooks, tools, prompt, models and web UI." },
-  "EVENTS.md": { slug: "docs/events", title: "Events and durability", description: "The session log, the agent as an Elm program, the tick, and how changes are applied and undone." },
-  "CORE.md": { slug: "docs/core", title: "Core and plugins", description: "What is fixed in the SDK and what is a plugin." },
+  "SDK.md": { slug: "docs/sdk", title: "Using the SDK", description: "Pie from code: choose extensions, bring any model, restart safely, let a program change itself." },
+  "PLUGINS.md": { slug: "docs/plugins", title: "Writing extensions", description: "The extension API: tools, models, prompt, hooks, events, projections and reactions." },
+  "EVENTS.md": { slug: "docs/events", title: "Events and durability", description: "The session log, the agent loop written over it, the tick, and why restarting is safe." },
+  "CORE.md": { slug: "docs/core", title: "Core and extensions", description: "What the SDK does and what extensions add." },
   "architecture.md": { slug: "docs/architecture", title: "Architecture", description: "Diagrams, persisted data, edge cases and the SDK API." },
   "REFERENCES.md": { slug: "docs/references", title: "References", description: "What Pie takes from pi, OpenCode and the DeepSeek Harness." }
 }
@@ -41,6 +42,6 @@ fs.cpSync(path.join(sdk, "docs", "diagrams"), path.join(out, "docs", "diagrams")
 })
 fs.writeFileSync(
   path.join(out, "changelog.md"),
-  convert(path.join(sdk, "CHANGELOG.md"), { slug: "changelog", title: "Changelog", description: "Releases of pie-agent." })
+  convert(path.join(sdk, "CHANGELOG.md"), { slug: "changelog", title: "Changelog", description: "Releases of Pie." })
 )
 console.log(`synced ${Object.keys(pages).length + 1} pages from packages/sdk`)

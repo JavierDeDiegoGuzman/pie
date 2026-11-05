@@ -38,15 +38,31 @@ importers:
       astro:
         specifier: ^7.4.5
         version: 7.4.5(@types/node@24.19.2)(yaml@2.9.1)
+      satteri:
+        specifier: ^0.10.5
+        version: 0.10.5
       sharp:
         specifier: ^0.35.5
         version: 0.35.5(@types/node@24.19.2)
 
-  packages/sdk:
+  packages/plugins:
     dependencies:
       '@effect/ai-openai-compat':
         specifier: 4.1.2
         version: 4.1.2(effect@4.1.2)
+      effect:
+        specifier: 4.1.2
+        version: 4.1.2
+      pie-agent:
+        specifier: workspace:^
+        version: link:../sdk
+    devDependencies:
+      '@effect/platform-node':
+        specifier: 4.1.2
+        version: 4.1.2(effect@4.1.2)(redis@6.3.1)
+
+  packages/sdk:
+    dependencies:
       '@effect/platform-node':
         specifier: 4.1.2
         version: 4.1.2(effect@4.1.2)(redis@6.3.1)
@@ -56,12 +72,6 @@ importers:
       effect:
         specifier: 4.1.2
         version: 4.1.2
-      htm:
-        specifier: ^3.1.1
-        version: 3.1.1
-      preact:
-        specifier: ^11.1.1
-        version: 11.1.1
 
 packages:
 
@@ -1102,9 +1112,6 @@ packages:
   hastscript@9.0.3:
     resolution: {integrity: sha512-1ALZXSmCGmW3h8AMz4R4+QKSKFi7sNgXLVwmwB8FYVtl1CwQ3WDkSAEY/d5tp1g/vbQgq2s1WlHgfO3jbw1TsA==}
 
-  htm@3.1.1:
-    resolution: {integrity: sha512-983Vyg8NwUE7JkZ6NmOqpCZ+sh1bKv2iYTlUkzlWmA5JD2acKoxd4KVxbMmxX/85mtfdnDmTFoNKcg5DGAvxNQ==}
-
   html-escaper@3.0.3:
     resolution: {integrity: sha512-RuMffC89BOWQoY0WKGpIhn5gX3iI54O6nRA0yC124NYVtzjmFWBIiFd8M0x+ZdX0P9R4lADg1mgP8C7PxGOWuQ==}
 
@@ -1444,14 +1451,6 @@ packages:
   postcss@8.5.32:
     resolution: {integrity: sha512-LJlKCCAUFKOuZxipUdYw1NzIITEsPcgyOG9LkvRJvuKj/bRzbuRY0ARXvL0pWGpsZvn8jku+LMep2eU0seHp8g==}
     engines: {node: ^10 || ^12 || >=14}
-
-  preact@11.1.1:
-    resolution: {integrity: sha512-vpFVfai437pbuLri7XVeslCPfrEZX6Z1S2gV+MOFrA/kji+NKUXvH7y01EnVjA1guLigfkVp77Sqipd4SIllCg==}
-    peerDependencies:
-      preact-render-to-string: '>=6.7.0'
-    peerDependenciesMeta:
-      preact-render-to-string:
-        optional: true
 
   prismjs@1.30.0:
     resolution: {integrity: sha512-DEvV2ZF2r2/63V+tK8hQvrR2ZGn10srHbXviTlcv7Kpzw8jWiNTqbVgjO3IY8RxrrOUF8VPMQQFysYYYv0YZxw==}
@@ -2901,8 +2900,6 @@ snapshots:
       property-information: 7.2.0
       space-separated-tokens: 2.0.2
 
-  htm@3.1.1: {}
-
   html-escaper@3.0.3: {}
 
   html-void-elements@3.0.0: {}
@@ -3324,8 +3321,6 @@ snapshots:
       nanoid: 3.3.20
       picocolors: 1.1.1
       source-map-js: 1.2.2
-
-  preact@11.1.1: {}
 
   prismjs@1.30.0: {}
 

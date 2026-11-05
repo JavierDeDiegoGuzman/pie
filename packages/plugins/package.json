@@ -1,0 +1,53 @@
+{
+  "name": "@pie-agent/plugins",
+  "version": "0.1.0",
+  "description": "The official Pie extensions: OpenCode Go models, pi's coding tools (read, write, edit, bash), the base prompt, AGENTS.md files, and a todo example.",
+  "license": "MIT",
+  "author": "Javier de Diego Guzmán",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JavierDeDiegoGuzman/pie.git",
+    "directory": "packages/plugins"
+  },
+  "homepage": "https://javierdediegoguzman.github.io/pie/",
+  "keywords": [
+    "agent",
+    "coding-agent",
+    "pie",
+    "pie-agent",
+    "plugins",
+    "effect"
+  ],
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "exports": {
+    ".": {
+      "pie-source": "./src/index.ts",
+      "types": "./dist/src/index.d.ts",
+      "default": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "prepack": "node ../../scripts/prepack.mjs plugins"
+  },
+  "dependencies": {
+    "@effect/ai-openai-compat": "4.1.2",
+    "effect": "4.1.2",
+    "pie-agent": "workspace:^"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "devDependencies": {
+    "@effect/platform-node": "4.1.2"
+  }
+}

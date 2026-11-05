@@ -1,7 +1,8 @@
 name: Release
 
-# Push a tag like v0.1.0 (matching packages/sdk/package.json) to publish
-# pie-agent to npm with provenance and create the GitHub release.
+# Push a tag like v0.1.0 (matching the version of every package) to publish
+# pie-agent and @pie-agent/plugins to npm with provenance and
+# create the GitHub release. pnpm publish turns workspace:^ into the version.
 on:
   push:
     tags: ["v*"]
@@ -22,17 +23,21 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
-      - name: Tag matches the package version
+      - name: Tag matches every package version
         run: |
-          version=$(node -p "require('./packages/sdk/package.json').version")
-          test "v$version" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != v$version"; exit 1; }
+          for pkg in sdk plugins; do
+            version=$(node -p "require('./packages/$pkg/package.json').version")
+            test "v$version" = "$GITHUB_REF_NAME" || { echo "$pkg: tag $GITHUB_REF_NAME != v$version"; exit 1; }
+          done
       - run: pnpm check
       - run: pnpm test
       - run: pnpm build
       - run: pnpm pack:smoke
-      - name: Publish to npm
-        working-directory: packages/sdk
-        run: npm publish --provenance --access public
+      - name: Publish to npm (the SDK first, then what depends on it)
+        run: |
+          for pkg in sdk plugins; do
+            (cd packages/$pkg && pnpm publish --provenance --access public --no-git-checks)
+          done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: GitHub release with the changelog section
@@ -41,4 +46,4 @@ jobs:
         run: |
           version=${GITHUB_REF_NAME#v}
           awk -v v="$version" '/^## /{p = index($0, "[" v "]") > 0; next} p' packages/sdk/CHANGELOG.md > notes.md
-          gh release create "$GITHUB_REF_NAME" --title "pie-agent $GITHUB_REF_NAME" --notes-file notes.md
+          gh release create "$GITHUB_REF_NAME" --title "Pie $GITHUB_REF_NAME" --notes-file notes.md

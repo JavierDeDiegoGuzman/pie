@@ -1,69 +1,37 @@
 # pie-agent
 
-**Pie** is a durable, self-modifying coding agent built on [Effect](https://effect.website).
-It follows [pi](https://pi.dev)'s idea of a minimal core, and adds two
-things:
+**Pie** is a durable coding agent you embed in your own program, built on
+[Effect](https://effect.website). It follows [pi](https://pi.dev)'s idea of a minimal core:
+four tools, and everything else as extensions you pass in code.
 
-- **Durable.** Everything a session does is an event in an append-only log (SQLite by
-  default). The agent is a pure `evolve`/`decide` program over that log, so a crash, a
-  `kill -9` or a restart resumes exactly where it stopped: no repeated model calls, no
-  repeated side effects, and tools that cannot be safely repeated report "outcome unknown".
-- **Self-modifying, with undo.** Everything except the small core is a plugin, and every
-  plugin is a folder of TypeScript the agent can read and edit with its ordinary tools.
-  Edits apply by themselves before the agent's next step; a plugin that does not load is
-  refused with its errors. Every applied change is a snapshot you can roll back to from the
-  web page, the terminal, or automatically when Pie stops starting.
+- **Durable.** Everything a session does is an event in an append-only log (SQLite). After a
+  crash, a `kill -9` or a restart, open runs resume where they stopped: no repeated model
+  calls, no repeated side effects, and tools that cannot be safely repeated report "outcome
+  unknown".
+- **Made to be restarted.** Because restarting loses nothing, a program that embeds Pie can let
+  its agent change the program itself, check it, and restart into the new version in the middle
+  of a run. The agent carries on in the new process.
 
-> **Status: 0.1, experimental.** The event format and the plugin API may still change.
+> **Status: 0.1, experimental.** The event format and the extension API may still change.
+
+| Package | |
+|---|---|
+| [`pie-agent`](packages/sdk) | The SDK: the event log, the agent loop, the runtime, the extension API. No extensions of its own |
+| [`@pie-agent/plugins`](packages/plugins) | The official extensions: OpenCode Go models, pi's tools, the base prompt, `AGENTS.md` files |
 
 ## Quick start
 
 Requires Node.js 22.18 or newer.
 
 ```sh
-npx pie-agent serve --home .pie --cwd .
+npm install pie-agent @pie-agent/plugins effect @effect/platform-node
 ```
-
-This creates a Pie home in `.pie/` (sessions in `pie.db`, plugins in `plugins/`) and prints
-a URL with an access token for the web interface (served on 127.0.0.1 only). `--port` picks
-the port.
-
-The default model is DeepSeek v4.1 Flash through [OpenCode Go](https://opencode.ai). Pie
-reads the key from `OPENCODE_GO_API_KEY`, or from the credential pi stores in
-`~/.pi/agent/auth.json`. Other providers are plugins (see `plugins/opencode-go`).
-
-## What the agent gets
-
-Like pi, the model sees few tools: `read`, `write`, `edit` and `bash`. The rest is plugins:
-
-| Plugin | What it does |
-|---|---|
-| `opencode-go` | Models from OpenCode Go |
-| `system-prompt` | The base prompt and the session environment |
-| `context-files` | `AGENTS.md` / `CLAUDE.md` from `~/.pie` and from the repo root down to the cwd |
-| `coding-tools` | `read`, `write`, `edit`, `bash` |
-| `self` | Tells the agent where its plugins, the SDK and the docs are, and how to undo changes |
-| `web`, `web-chat` | The web interface: a page with slots that plugins fill, and the chat |
-| `todo` | Example: a todo list as events, with a projection and a web panel (not seeded by default) |
-
-## Undoing changes
-
-```sh
-pie explain  --home .pie            # loaded plugins and the history of snapshots
-pie rollback --home .pie --to 12    # put the plugins folder back to snapshot #12
-pie rollback --home .pie --last-good
-PIE_SAFE=1 pie serve --home .pie    # start with the SDK's templates, ignoring the folder
-```
-
-`pie serve` runs Pie under a supervisor: if Pie crashes twice in a row right after starting,
-it restores the last snapshot that ran well.
-
-## Using the SDK
 
 ```ts
 import { NodeRuntime } from "@effect/platform-node"
 import { Effect } from "effect"
-import { Pie } from "pie-agent"
+import { Pie, Storage } from "pie-agent"
+import { codingTools, contextFiles, opencodeGo, systemPrompt } from "@pie-agent/plugins"
 
 const program = Effect.gen(function*() {
   const pie = yield* Pie.Pie
@@ -73,21 +41,54 @@ const program = Effect.gen(function*() {
   for (const event of yield* session.events) console.log(event.type)
 })
 
-NodeRuntime.runMain(program.pipe(Effect.provide(Pie.layer({ home: ".pie" })), Effect.scoped))
+const PieLive = Pie.layer({
+  storage: Storage.sqlite("pie.db"),
+  plugins: [opencodeGo, systemPrompt, contextFiles, codingTools]
+})
+
+NodeRuntime.runMain(program.pipe(Effect.provide(PieLive), Effect.scoped))
 ```
 
+The default model is DeepSeek v4.1 Flash through [OpenCode Go](https://opencode.ai): set
+`OPENCODE_GO_API_KEY`, or log in with pi (Pie reads `~/.pi/agent/auth.json`). Any other model
+is an extension of a dozen lines; see [Using the SDK](packages/sdk/docs/SDK.md).
+
 A session also has `steer`, `followUp`, `abort`, `navigate` (branch from an earlier event),
-`setModel` and `live` (a stream of events and text deltas).
+`setModel`, `projection` (state an extension folds from events) and `live` (a stream of events
+and text deltas).
 
-## Writing plugins
+## A program that changes itself
 
-A plugin is a folder with an `index.ts`:
+[`examples/app`](examples/app) is a personal app built this way: a chat (one thread at a time
+and a list of threads) whose agent works on the app's own source. Ask it, from your phone, for
+a new page or a different header; it edits the code and runs `npm run apply`, which checks the
+change (types, build, a boot test), commits it and restarts the app. systemd starts the new
+version, the agent's run continues in it, and the open page reloads by itself.
+
+```sh
+pnpm build && examples/app/create.sh ~/pie-app
+cd ~/pie-app && npm start          # or run it as a service: examples/app/pie-app.service
+```
+
+## Extensions
+
+Like pi, the model sees few tools: `read`, `write`, `edit` and `bash`. The rest is extensions:
+
+| Extension | What it does |
+|---|---|
+| `opencodeGo` | Models from OpenCode Go |
+| `systemPrompt` | The base prompt and the session environment |
+| `contextFiles` | `AGENTS.md` / `CLAUDE.md` from `~/.pie` and from the repo root down to the cwd |
+| `codingTools` | `read`, `write`, `edit`, `bash` |
+| `todo` | Example: a todo list as events, with a projection the program can show |
+
+An extension is a value you pass to `Pie.layer`:
 
 ```ts
 import { Effect, Schema } from "effect"
 import { Plugin, defineTool } from "pie-agent"
 
-export default Plugin.define({
+export const wordCount = Plugin.define({
   id: "word-count",
   setup: (ctx) =>
     ctx.tools.transform((tools) => {
@@ -102,18 +103,17 @@ export default Plugin.define({
 })
 ```
 
-Plugins can add event types, projections (state folded from events), reactions, prompt
-parts, context hooks, tool policies, models and web UI. See
-[docs/PLUGINS.md](packages/sdk/docs/PLUGINS.md).
+Extensions can also add event types, projections (state folded from events), reactions, prompt
+parts, context hooks, tool policies and models. See [docs/PLUGINS.md](packages/sdk/docs/PLUGINS.md).
 
 ## Documentation
 
 The website is at **https://javierdediegoguzman.github.io/pie/**. The same docs are in this repo:
 
-
-- [docs/PLUGINS.md](packages/sdk/docs/PLUGINS.md): the plugin API, with examples
-- [docs/EVENTS.md](packages/sdk/docs/EVENTS.md): the event model, the tick, durability and undo
-- [docs/CORE.md](packages/sdk/docs/CORE.md): what is core and what is a plugin
+- [docs/SDK.md](packages/sdk/docs/SDK.md): using Pie from code, choosing extensions, your own model, restarting safely
+- [docs/PLUGINS.md](packages/sdk/docs/PLUGINS.md): the extension API, with examples
+- [docs/EVENTS.md](packages/sdk/docs/EVENTS.md): the event model, the tick and durability
+- [docs/CORE.md](packages/sdk/docs/CORE.md): what is core and what is an extension
 - [docs/architecture.md](packages/sdk/docs/architecture.md): diagrams, edge cases and the SDK API
 - [docs/REFERENCES.md](packages/sdk/docs/REFERENCES.md): ideas taken from pi, OpenCode and the DeepSeek Harness
 
@@ -122,8 +122,8 @@ The website is at **https://javierdediegoguzman.github.io/pie/**. The same docs 
 ```sh
 pnpm install
 pnpm check        # types
-pnpm test         # unit, durability (real SIGKILLs) and web tests
-pnpm build && pnpm pack:smoke   # pack, install with npm in an empty folder, run
+pnpm test         # unit, durability (real SIGKILLs), two processes on one database
+pnpm build && pnpm pack:smoke   # pack both packages, install with npm in an empty folder, run
 PIE_LIVE=1 pnpm test            # also against the real model
 pnpm site:dev                   # the website (apps/site; Astro needs Node 22.23.4+)
 ```

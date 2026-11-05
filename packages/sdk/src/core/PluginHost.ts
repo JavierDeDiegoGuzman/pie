@@ -9,8 +9,7 @@
  *   finalizers.
  */
 import { Cause, Context, Data, Effect, Exit, FileSystem, Path, Ref, Scope, Semaphore } from "effect"
-import { createHash } from "node:crypto"
-import type { PieApi, Plugin, PluginContext } from "./Plugin.ts"
+import type { Plugin, PluginContext } from "./Plugin.ts"
 import { EventLog, type LogEvent } from "./Log.ts"
 import { type ProjectionDefinition, Registries } from "./Registry.ts"
 import { Composition, PluginId, PluginOrder } from "./State.ts"
@@ -68,9 +67,6 @@ export class PluginHost extends Context.Service<PluginHost, {
   readonly replace: (plugin: Plugin, options?: LoadOptions) => Effect.Effect<void, PluginLoadError>
   readonly unload: (id: string) => Effect.Effect<void, PluginNotFound>
   readonly list: Effect.Effect<ReadonlyArray<PluginInfo>>
-  /** Gives plugins access to Pie (ctx.pie). Set by Pie.layer before plugins load. */
-  readonly setApi: (api: PieApi) => Effect.Effect<void>
-  readonly getApi: Effect.Effect<PieApi | undefined>
 }>()("pie/PluginHost") {
   static readonly make = Effect.gen(function*() {
     const composition = yield* Composition
@@ -80,7 +76,6 @@ export class PluginHost extends Context.Service<PluginHost, {
     const loaded = yield* Ref.make(new Map<string, Loaded>())
     const lock = yield* Semaphore.make(1)
     let nextOrder = 0
-    let api: PieApi | undefined
 
     const setup = (plugin: Plugin, order: number, options: LoadOptions | undefined) =>
       Effect.gen(function*() {
@@ -114,18 +109,7 @@ export class PluginHost extends Context.Service<PluginHost, {
                     .pipe(Effect.provideContext(logContext))
               }
             ),
-          react: (definition) => registries.reactions.transform((reactions) => void reactions.set(definition.id, definition)),
-          ui: (module) => {
-            const source = typeof module === "string"
-              ? module
-              : `import * as sdk from "@pie/ui"\nconst register = (${module.toString()})\nexport default (ui) => register({ ...sdk, ui })\n`
-            const hash = createHash("sha256").update(source).digest("hex").slice(0, 16)
-            return registries.ui.transform((ui) => void ui.set(plugin.id, { id: plugin.id, source, hash }))
-          },
-          get pie(): PieApi {
-            if (!api) throw new Error("ctx.pie is only available when running under Pie.layer")
-            return api
-          }
+          react: (definition) => registries.reactions.transform((reactions) => void reactions.set(definition.id, definition))
         }
         const exit = yield* Effect.suspend(() => {
           // A setup that is not an Effect (e.g. `setup: () => {}`) would break the fiber outside of Effect's
@@ -195,6 +179,6 @@ export class PluginHost extends Context.Service<PluginHost, {
       })
     )
 
-    return PluginHost.of({ load, replace, unload, list, setApi: (value) => Effect.sync(() => void (api = value)), getApi: Effect.sync(() => api) })
+    return PluginHost.of({ load, replace, unload, list })
   })
 }

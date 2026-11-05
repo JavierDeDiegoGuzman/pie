@@ -34,7 +34,6 @@ import {
 } from "./Registry.ts"
 
 export class SessionBusy extends Data.TaggedError("SessionBusy")<{ readonly sessionId: string; readonly runId: string }> {}
-export class StorageLocked extends Data.TaggedError("StorageLocked")<{ readonly owner: string }> {}
 
 /** Give up on a model call when nothing (text, reasoning, tool calls) arrives for this long. */
 export const modelIdleTimeout = () => Number(process.env.PIE_MODEL_IDLE_TIMEOUT ?? 120_000)
@@ -72,13 +71,8 @@ export class Runtime extends Context.Service<Runtime, {
   readonly drain: (timeout?: number) => Effect.Effect<void>
   /** Begins executing: resumes open runs and catches up reactions. Call after plugins are loaded. */
   readonly start: Effect.Effect<void>
-  /** Releases the database lock now (before exiting for a restart). */
+  /** Stops starting new work (before exiting for a restart). */
   readonly release: Effect.Effect<void>
-  /**
-   * Runs before every model call (the plugin manager applies edits to the plugins folder here). What it returns is
-   * logged in the session as a `notice` the model reads.
-   */
-  readonly beforeStep: (f: (sessionId: string) => Effect.Effect<string | undefined>) => Effect.Effect<void>
 }>()("pie/Runtime") {
   static readonly make = Effect.gen(function*() {
     const log = yield* EventLog
@@ -89,31 +83,8 @@ export class Runtime extends Context.Service<Runtime, {
     const fibers = yield* FiberSet.make()
     const runFork = yield* FiberSet.runtime(fibers)<never>()
 
-    // -- process lock: one runtime per database -------------------------------
-    const owner = `${process.pid}-${randomUUID()}`
-    yield* Effect.orDie(sql`CREATE TABLE IF NOT EXISTS pie_lock (name TEXT PRIMARY KEY, owner TEXT NOT NULL, expires_at INTEGER NOT NULL)`)
-    const tryLock = sql.withTransaction(Effect.gen(function*() {
-      const now = Date.now()
-      yield* sql`DELETE FROM pie_lock WHERE name = 'runtime' AND expires_at < ${now}`
-      yield* sql`INSERT OR IGNORE INTO pie_lock ${sql.insert({ name: "runtime", owner, expires_at: now + 3000 })}`
-      const [row] = yield* sql<{ owner: string }>`SELECT owner FROM pie_lock WHERE name = 'runtime'`
-      return row?.owner === owner ? undefined : row?.owner
-    })).pipe(Effect.orDie)
-    const deadline = Date.now() + 10_000
-    for (;;) {
-      const holder = yield* tryLock
-      if (holder === undefined) break
-      if (Date.now() > deadline) return yield* Effect.die(new StorageLocked({ owner: holder }))
-      yield* Effect.sleep("200 millis")
-    }
-    yield* sql`UPDATE pie_lock SET expires_at = ${Date.now() + 3000} WHERE name = 'runtime' AND owner = ${owner}`.pipe(
-      Effect.orDie,
-      Effect.delay("1 second"),
-      Effect.forever,
-      FiberSet.run(fibers)
-    )
-    const release = Effect.ignore(sql`DELETE FROM pie_lock WHERE name = 'runtime' AND owner = ${owner}`)
-    yield* Effect.addFinalizer(() => release)
+    // One runtime per database: Storage.sqlite holds an exclusive lock on the file for as long as this process
+    // lives (a second process fails at startup), so there is nothing to coordinate here.
 
     // -- per-session state cache and locks ------------------------------------
     const cache = new Map<string, { leafId: string | null; state: Agent.AgentState }>()
@@ -167,7 +138,6 @@ export class Runtime extends Context.Service<Runtime, {
     }
 
     // -- commands ----------------------------------------------------------------
-    let beforeStepHook: (sessionId: string) => Effect.Effect<string | undefined> = () => Effect.succeed(undefined)
     let draining = false
     const inFlight = new Map<string, Set<string>>()
     const timers = new Set<string>()
@@ -185,10 +155,6 @@ export class Runtime extends Context.Service<Runtime, {
             data: { callId, turn, text: "", reasoning: "", toolCalls: [], finishReason: "aborted", model: state.model, usage: {} }
           })
           return
-        }
-        const notice = yield* beforeStepHook(sessionId)
-        if (notice !== undefined) {
-          yield* append(sessionId, { id: `${callId}/notice/${attempt}`, type: "notice", data: { text: notice } })
         }
         const branch = yield* log.branch(sessionId)
         const tools = yield* registries.tools.get
@@ -567,7 +533,6 @@ export class Runtime extends Context.Service<Runtime, {
       })
 
     return Runtime.of({
-      beforeStep: (f) => Effect.sync(() => void (beforeStepHook = f)),
       prompt: (sessionId, text, options) =>
         lockOf(sessionId).withPermits(1)(Effect.gen(function*() {
           const state = yield* load(sessionId)
@@ -607,9 +572,9 @@ export class Runtime extends Context.Service<Runtime, {
         }),
       append,
       start,
-      release: Effect.andThen(Effect.sync(() => {
+      release: Effect.sync(() => {
         draining = true
-      }), release),
+      }),
       drain: (timeout = 30_000) =>
         Effect.gen(function*() {
           draining = true

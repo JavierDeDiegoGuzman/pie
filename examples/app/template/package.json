@@ -1,0 +1,24 @@
+{
+  "name": "pie-app",
+  "private": true,
+  "type": "module",
+  "description": "A personal app that is also its agent: a chat with a Pie agent that can change this code and restart itself.",
+  "scripts": {
+    "build": "node web/build.mjs",
+    "check": "tsc --noEmit -p . && node web/build.mjs && node --no-warnings src/main.ts --smoke",
+    "start": "node --no-warnings src/main.ts",
+    "apply": "bash scripts/apply.sh"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.1.2",
+    "@pie-agent/plugins": "file:.vendor/pie-agent-plugins-0.1.0.tgz",
+    "effect": "4.1.2",
+    "pie-agent": "file:.vendor/pie-agent-0.1.0.tgz",
+    "preact": "^11.1.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3"
+  }
+}

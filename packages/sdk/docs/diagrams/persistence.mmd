@@ -15,11 +15,6 @@ erDiagram
     text model
     text leaf_id "head of the branch"
   }
-  pie_config {
-    int seq PK
-    text type "plugins/snapshot|config/good"
-    json data "the whole plugins folder"
-  }
   pie_cursors {
     text reaction_id PK
     text session_id PK
@@ -30,8 +25,7 @@ erDiagram
     text kind "execution|activity|deferred|clock|result"
     json data
   }
-  pie_lock {
-    text name PK
-    text owner
-    int expires_at
+  pie_meta {
+    text key PK "opened_by"
+    text value "pid of the owner"
   }

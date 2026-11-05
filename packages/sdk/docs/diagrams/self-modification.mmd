@@ -1,23 +1,22 @@
 sequenceDiagram
   autonumber
-  participant M as LLM
-  participant F as .pie/plugins/
-  participant R as Runtime
-  participant P as Plugins
-  participant C as Config log
-  participant H as PluginHost
-  M->>F: read / edit / write (e.g. web/shell.html)
-  Note over R: before the next model call
-  R->>P: sync(session)
-  P->>F: did the folder change?
-  P->>P: import + setup of the changed plugins in a throwaway composition
-  alt any of them fails
-    P-->>R: «NOT applied» + errors
-  else all of them load
-    P->>C: plugins/snapshot {files, hash, reason}
-    P->>H: replace (new Scope, closes the old one)
-    P-->>R: «applied» + snapshot number
+  participant U as You (phone)
+  participant A as The agent (Pie)
+  participant F as The program's source
+  participant S as npm run apply
+  participant M as Service manager
+  U->>A: "add a page for my workouts"
+  A->>F: read · edit · write
+  A->>S: bash: npm run apply -- "workouts page"
+  S->>S: check: types, build, boot test
+  alt the check fails
+    S-->>A: the errors (nothing applied)
+    A->>F: fix, and apply again
+  else it passes
+    S->>F: git commit
+    S-->>A: "applied, restarting in a second" (now in the log)
+    S->>M: the process ends
+    M->>M: starts the new version
+    Note over A: Pie resumes the run from the log, on the new code
+    A-->>U: "done: the page is there" · the open page reloads
   end
-  R->>R: notice event in the session
-  R->>M: model request with the notice as a message and the new tools
-  Note over R: if Pie crashes twice at startup, the supervisor restores the last good snapshot

@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Pie">
+  <defs>
+    <clipPath id="pie-filling"><path d="M32 32 L53.61 24.13 A23 23 0 1 1 39.87 10.39 Z"/></clipPath>
+    <clipPath id="pie-slice-filling"><path d="M32 32 L39.87 10.39 A23 23 0 0 1 53.61 24.13 Z"/></clipPath>
+  </defs>
+  <!-- the pie, a slice missing -->
+  <path d="M32 32 L58.31 22.42 A28 28 0 1 1 41.58 5.69 Z" fill="#E9A848" stroke="#B36F24" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M32 32 L53.61 24.13 A23 23 0 1 1 39.87 10.39 Z" fill="#C42F4A"/>
+  <g clip-path="url(#pie-filling)" stroke="#F4C46E" stroke-width="4.2" stroke-linecap="round">
+    <path d="M4 22 L42 60 M4 36 L28 60 M14 4 L58 48 M28 2 L62 36"/>
+    <path d="M4 42 L42 4 M10 56 L56 10 M24 62 L62 24"/>
+  </g>
+  <!-- the slice, pulled out -->
+  <g transform="translate(4.5 -4.5)">
+    <path d="M32 32 L41.58 5.69 A28 28 0 0 1 58.31 22.42 Z" fill="#E9A848" stroke="#B36F24" stroke-width="2" stroke-linejoin="round"/>
+    <path d="M32 32 L39.87 10.39 A23 23 0 0 1 53.61 24.13 Z" fill="#C42F4A"/>
+    <g clip-path="url(#pie-slice-filling)" stroke="#F4C46E" stroke-width="4.2" stroke-linecap="round">
+      <path d="M14 4 L58 48 M28 2 L62 36 M24 62 L62 24 M10 56 L56 10"/>
+    </g>
+  </g>
+</svg>
