@@ -55,15 +55,19 @@ is an extension of a dozen lines; see [Using the SDK](packages/sdk/docs/SDK.md).
 
 A session also has `steer`, `followUp`, `abort`, `navigate` (branch from an earlier event),
 `setModel`, `projection` (state an extension folds from events) and `live` (a stream of events
-and text deltas).
+and text deltas). Messages can carry images (`attachments`, stored once by hash in
+`attachments/` next to the database); messages sent while the agent works are queued, and
+`queued`, `deliverNow` and `cancelQueued` act on them; `pie.list` gives each session's title,
+status and last activity.
 
 ## A program that changes itself
 
 [`examples/app`](examples/app) is a personal app built this way: a chat (one thread at a time
 and a list of threads) whose agent works on the app's own source. Ask it, from your phone, for
 a new page or a different header; it edits the code and runs `npm run apply`, which checks the
-change (types, build, a boot test), commits it and restarts the app. systemd starts the new
-version, the agent's run continues in it, and the open page reloads by itself.
+change (types, build, a boot test), commits it, copies that commit to `.release/` and restarts
+the app. systemd starts the new version from `.release/` (so half-written edits never run), the
+agent's run continues in it, and the open page reloads by itself.
 
 ```sh
 pnpm build && examples/app/create.sh ~/pie-app

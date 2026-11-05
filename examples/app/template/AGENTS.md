@@ -9,13 +9,18 @@ editing these files.
 |---|---|
 | `src/main.ts` | Entry: storage, the agent, the HTTP server |
 | `src/agent.ts` | Your plugins: model, prompt, tools |
-| `scripts/apply.sh` | `npm run apply`: check, commit, restart |
+| `scripts/apply.sh` | `npm run apply`: check, commit, release, restart |
+| `scripts/release.sh` | Copies the last commit to `.release/`, which the service runs |
 | `src/server.ts` | HTTP API (threads, messages, live events by SSE) and static files |
 | `web/src/app.tsx` | The page (Preact). `web/build.mjs` bundles it to `web/dist` |
 | `web/src/styles.css` | Styles |
 | `web/public/` | Static files copied as they are: `favicon.svg`, `apple-touch-icon.png` |
 
 ## Applying a change
+
+The app runs from `.release/`, a copy of the last applied commit, not from this folder: your
+edits never run until you apply them, and a restart for any other reason (a crash, the machine)
+brings back the last applied version. Never restart the service yourself (no `systemctl`): apply.
 
 Edits do nothing until you run, with bash:
 

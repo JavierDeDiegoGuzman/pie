@@ -25,6 +25,12 @@ erDiagram
     text kind "execution|activity|deferred|clock|result"
     json data
   }
+  pie_attachments {
+    text hash PK "sha256 of the bytes"
+    text media_type
+    int size
+    text file "in attachments/ next to the db"
+  }
   pie_meta {
     text key PK "opened_by"
     text value "pid of the owner"

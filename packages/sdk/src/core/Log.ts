@@ -7,8 +7,10 @@
  * Appends are idempotent by event id: re-running a step after a crash with the
  * same deterministic ids never duplicates anything.
  */
+import { createHash } from "node:crypto"
 import { Context, Data, Effect } from "effect"
 import { SqlClient } from "effect/sql"
+import { Attachments } from "./Storage.ts"
 
 export interface LogEvent<Type extends string = string, Data = unknown> {
   readonly id: string
@@ -68,6 +70,19 @@ const toEvent = (row: EventRow): LogEvent => ({
   createdAt: row.created_at
 })
 
+/** When a session last changed, and the first thing the user said in it (on its current branch or not). */
+export interface SessionActivity {
+  readonly updatedAt: number
+  readonly title: string | undefined
+}
+
+/** A file attached to a message (an image), addressed by its content hash. */
+export interface Blob {
+  readonly hash: string
+  readonly mediaType: string
+  readonly data: Uint8Array
+}
+
 export interface NewEvent {
   readonly id: string
   readonly type: string
@@ -87,9 +102,15 @@ export class EventLog extends Context.Service<EventLog, {
   readonly get: (eventId: string) => Effect.Effect<LogEvent, EventNotFound>
   /** Moves the session's leaf: new events then branch from there. */
   readonly setLeaf: (sessionId: string, eventId: string | null) => Effect.Effect<void>
+  /** Last activity and title of every session, by id. */
+  readonly activity: Effect.Effect<ReadonlyMap<string, SessionActivity>>
+  /** Stores a file once (its bytes in the attachments store, its reference here) and returns its hash. */
+  readonly putBlob: (mediaType: string, data: Uint8Array) => Effect.Effect<string>
+  readonly getBlob: (hash: string) => Effect.Effect<Blob | undefined>
 }>()("pie/EventLog") {
   static readonly make = Effect.gen(function*() {
     const sql = yield* SqlClient.SqlClient
+    const attachments = yield* Attachments
 
     yield* Effect.orDie(Effect.gen(function*() {
       yield* sql`CREATE TABLE IF NOT EXISTS pie_sessions (
@@ -99,6 +120,8 @@ export class EventLog extends Context.Service<EventLog, {
         id TEXT PRIMARY KEY, session_id TEXT NOT NULL, parent_id TEXT, seq INTEGER NOT NULL,
         type TEXT NOT NULL, data TEXT NOT NULL, created_at INTEGER NOT NULL)`
       yield* sql`CREATE INDEX IF NOT EXISTS pie_events_session ON pie_events (session_id, seq)`
+      yield* sql`CREATE TABLE IF NOT EXISTS pie_attachments (
+        hash TEXT PRIMARY KEY, media_type TEXT NOT NULL, size INTEGER NOT NULL, file TEXT NOT NULL, created_at INTEGER NOT NULL)`
     }))
 
     const getSession = (sessionId: string) =>
@@ -163,6 +186,34 @@ export class EventLog extends Context.Service<EventLog, {
       append,
       branch,
       all,
+      activity: Effect.gen(function*() {
+        const last = yield* sql<{ session_id: string; at: number }>`
+          SELECT session_id, MAX(created_at) AS at FROM pie_events GROUP BY session_id`
+        const firsts = yield* sql<{ session_id: string; data: string }>`
+          SELECT e.session_id, e.data FROM pie_events e
+          JOIN (SELECT session_id, MIN(seq) AS seq FROM pie_events WHERE type = 'user' GROUP BY session_id) f
+            ON e.session_id = f.session_id AND e.seq = f.seq`
+        const titles = new Map(firsts.map((r) => [r.session_id, String(JSON.parse(r.data)?.text ?? "")]))
+        return new Map(last.map((r) => [r.session_id, { updatedAt: r.at, title: titles.get(r.session_id) }]))
+      }).pipe(Effect.orDie),
+      // The bytes go to the attachments store first, then the reference to the database.
+      putBlob: (mediaType, data) =>
+        Effect.gen(function*() {
+          const hash = createHash("sha256").update(data).digest("hex")
+          const file = yield* attachments.write(hash, data)
+          yield* sql`INSERT OR IGNORE INTO pie_attachments ${
+            sql.insert({ hash, media_type: mediaType, size: data.byteLength, file, created_at: Date.now() })
+          }`
+          return hash
+        }).pipe(Effect.orDie),
+      getBlob: (hash) =>
+        Effect.gen(function*() {
+          const [row] = yield* sql<{ hash: string; media_type: string; file: string }>`
+            SELECT hash, media_type, file FROM pie_attachments WHERE hash = ${hash}`
+          if (!row) return undefined
+          const data = yield* attachments.read(row.file)
+          return data ? { hash: row.hash, mediaType: row.media_type, data } : undefined
+        }).pipe(Effect.orDie),
       get: (eventId) =>
         sql<EventRow>`SELECT * FROM pie_events WHERE id = ${eventId}`.pipe(
           Effect.orDie,

@@ -34,13 +34,34 @@ export interface Usage {
 
 export type RunStatus = "completed" | "failed" | "aborted"
 
+/** A file attached to a user message: stored once next to the log (EventLog.putBlob), referenced by hash. */
+export interface Attachment {
+  readonly blob: string
+  readonly mediaType: string
+  readonly name?: string | undefined
+  readonly size: number
+}
+
 export interface CoreEvents {
   /** A run begins; the prompt follows as a `user` event. */
   readonly "run/started": { readonly runId: string }
   /** Text from the user that the model sees. `inputId` when it was queued first. */
-  readonly user: { readonly text: string; readonly inputId?: string | undefined }
+  readonly user: {
+    readonly text: string
+    readonly inputId?: string | undefined
+    readonly attachments?: ReadonlyArray<Attachment> | undefined
+  }
   /** steer/followUp waiting to be delivered at the right point of the run. */
-  readonly "input/queued": { readonly inputId: string; readonly kind: "steer" | "followUp"; readonly text: string }
+  readonly "input/queued": {
+    readonly inputId: string
+    readonly kind: "steer" | "followUp"
+    readonly text: string
+    readonly attachments?: ReadonlyArray<Attachment> | undefined
+  }
+  /** A queued input changes how it is delivered (e.g. a follow-up becomes a steer: "deliver it now"). */
+  readonly "input/changed": { readonly inputId: string; readonly kind: "steer" | "followUp" }
+  /** A queued input is withdrawn before it was delivered. */
+  readonly "input/cancelled": { readonly inputId: string }
   /** What was sent to the model ("model-visible means logged"); messages are the branch before it. */
   readonly "model/requested": {
     readonly callId: string
@@ -149,6 +170,14 @@ export const evolve = (state: AgentState, event: LogEvent): AgentState => {
     }
     case "input/queued":
       return { ...state, queued: [...state.queued, event.data as CoreEvents["input/queued"]] }
+    case "input/changed": {
+      const { inputId, kind } = event.data as CoreEvents["input/changed"]
+      return { ...state, queued: state.queued.map((q) => (q.inputId === inputId ? { ...q, kind } : q)) }
+    }
+    case "input/cancelled": {
+      const { inputId } = event.data as CoreEvents["input/cancelled"]
+      return { ...state, queued: state.queued.filter((q) => q.inputId !== inputId) }
+    }
     case "model/requested": {
       if (!run) return state
       const { attempt, callId, turn } = event.data as CoreEvents["model/requested"]
@@ -262,12 +291,37 @@ export const decide = (state: AgentState, now: number): ReadonlyArray<Command> =
 // View: what the model sees
 // ---------------------------------------------------------------------------
 
-/** Messages for the model from a branch. Only core conversational events are visible. */
-export const toMessages = (events: ReadonlyArray<LogEvent>): Array<Prompt.MessageEncoded> => {
+/** Hashes of every file attached in a branch (to load them before building the messages). */
+export const attachmentsOf = (events: ReadonlyArray<LogEvent>): ReadonlyArray<string> =>
+  events.flatMap((e) => (isCore(e, "user") ? (e.data.attachments ?? []).map((a) => a.blob) : []))
+
+/**
+ * Messages for the model from a branch. Only core conversational events are visible. `files` has the data of
+ * attached files by hash; an attachment whose data is missing is described in text instead.
+ */
+export const toMessages = (
+  events: ReadonlyArray<LogEvent>,
+  files: ReadonlyMap<string, Uint8Array> = new Map()
+): Array<Prompt.MessageEncoded> => {
   const messages: Array<Prompt.MessageEncoded> = []
   for (const event of events) {
     if (isCore(event, "user")) {
-      messages.push({ role: "user", content: event.data.text })
+      const attachments = event.data.attachments ?? []
+      if (attachments.length === 0) {
+        messages.push({ role: "user", content: event.data.text })
+        continue
+      }
+      const content: Array<Prompt.UserMessagePartEncoded> = []
+      if (event.data.text.length > 0) content.push({ type: "text", text: event.data.text })
+      for (const a of attachments) {
+        const data = files.get(a.blob)
+        content.push(
+          data
+            ? { type: "file", mediaType: a.mediaType, data, ...(a.name ? { fileName: a.name } : {}) }
+            : { type: "text", text: `[attachment ${a.name ?? a.blob.slice(0, 12)} (${a.mediaType}) is no longer available]` }
+        )
+      }
+      messages.push({ role: "user", content })
     } else if (isCore(event, "notice")) {
       messages.push({ role: "user", content: `[Pie] ${event.data.text}` })
     } else if (isCore(event, "model/responded")) {

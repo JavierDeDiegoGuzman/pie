@@ -58,6 +58,7 @@ snapshots, durable data outside sessions (domains).
 | `sdk/test/core.test.ts` | `State`, `PluginHost` |
 | `sdk/test/agent.test.ts` | Loop over the log: tools, busy, followUp, steer, nulls, repeated ids, missing tool, denying hook, model retries, abort |
 | `sdk/test/durability.test.ts` | SIGKILL with SQLite in a real process: model not repeated, idempotent tool repeated, non-idempotent «outcome unknown» |
+| `sdk/test/inputs.test.ts` | Images in a prompt (stored once, a file part for the model; with SQLite, a file in `attachments/`); the queue: list, deliver now, withdraw; `pie.list` with title, status and last outcome |
 | `sdk/test/storage.test.ts` | Two processes on one database: the second fails at once; after a kill -9 of the first it opens |
 | `sdk/test/workflow.test.ts` | Effect workflow with SIGKILL: activities not repeated, clock keeps its time, approval, stored result |
 | `plugins/test/sdk.test.ts` | Only the extensions passed in code load; a model that is not OpenCode Go |

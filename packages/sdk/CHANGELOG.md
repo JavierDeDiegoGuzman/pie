@@ -25,6 +25,14 @@ changes itself by restarting, which is safe at any moment.
 
 - `session.projection(id)`: the value of an extension's projection on the session's branch, so a
   program can show it.
+- Images (any file) in messages: `prompt`, `steer` and `followUp` take `attachments` (bytes or
+  base64). Stored once by hash: the bytes in `attachments/` next to the database, the reference in
+  `pie_attachments`. The model gets them as file parts; `session.attachment(blob)` reads them back.
+- The queue of messages sent while a run is active: `session.queued`, `session.deliverNow(inputId)`
+  (a follow-up becomes a steer) and `session.cancelQueued(inputId)`, as the events `input/changed`
+  and `input/cancelled`.
+- `pie.list` returns each session's title (its first message), last activity, status (`running` or
+  `idle`) and last outcome, most recent first.
 - `examples/app`: a phone-first chat whose agent changes the app itself (`npm run apply`: check,
   commit, restart), run as a systemd service.
 

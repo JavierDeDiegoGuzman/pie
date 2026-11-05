@@ -17,4 +17,5 @@ git init -q
 git config user.name "Pie" && git config user.email "pie@localhost"   # the agent commits as Pie
 npm run --silent check
 git add -A && git commit -q -m "the app, from the template"
+bash scripts/release.sh
 echo "created $TARGET"

@@ -53,13 +53,32 @@ const errorMessage = (cause: Cause.Cause<unknown>) => {
   return error instanceof Error ? error.message : typeof error === "string" ? error : Cause.pretty(cause)
 }
 
+/** A file to attach to a message: its bytes, or base64. */
+export interface AttachmentInput {
+  readonly mediaType: string
+  readonly data: Uint8Array | string
+  readonly name?: string | undefined
+}
+
 export interface PromptOptions {
+  /** Required while a run is active: queue the text instead of failing. */
   readonly streamingBehavior?: "steer" | "followUp" | undefined
+  /** Files the model sees with the text (images, for models that take them). */
+  readonly attachments?: ReadonlyArray<AttachmentInput> | undefined
 }
 
 export class Runtime extends Context.Service<Runtime, {
   readonly prompt: (sessionId: string, text: string, options?: PromptOptions) => Effect.Effect<void, SessionBusy | SessionNotFound>
-  readonly enqueue: (sessionId: string, kind: "steer" | "followUp", text: string) => Effect.Effect<void, SessionNotFound>
+  readonly enqueue: (
+    sessionId: string,
+    kind: "steer" | "followUp",
+    text: string,
+    attachments?: ReadonlyArray<AttachmentInput>
+  ) => Effect.Effect<void, SessionNotFound>
+  /** Changes how a queued input is delivered (`steer`: after the current tool calls). No-op if it was delivered. */
+  readonly requeue: (sessionId: string, inputId: string, kind: "steer" | "followUp") => Effect.Effect<void, SessionNotFound>
+  /** Withdraws a queued input that has not been delivered yet. */
+  readonly cancelQueued: (sessionId: string, inputId: string) => Effect.Effect<void, SessionNotFound>
   readonly abort: (sessionId: string) => Effect.Effect<void, SessionNotFound>
   readonly navigate: (sessionId: string, eventId: string | null) => Effect.Effect<void, SessionBusy | SessionNotFound>
   readonly setModel: (sessionId: string, model: string) => Effect.Effect<void, SessionNotFound>
@@ -143,6 +162,17 @@ export class Runtime extends Context.Service<Runtime, {
     const timers = new Set<string>()
     const tickers = new Map<string, { dirty: boolean; running: boolean }>()
 
+    /** The data of every file attached in a branch, by hash (for the model's view). */
+    const loadFiles = (branch: ReadonlyArray<LogEvent>) =>
+      Effect.gen(function*() {
+        const files = new Map<string, Uint8Array>()
+        for (const hash of new Set(Agent.attachmentsOf(branch))) {
+          const blob = yield* log.getBlob(hash)
+          if (blob) files.set(hash, blob.data)
+        }
+        return files
+      })
+
     const callModel = (sessionId: string, command: Extract<Agent.Command, { _tag: "CallModel" }>) =>
       Effect.gen(function*() {
         const state = yield* load(sessionId)
@@ -162,7 +192,7 @@ export class Runtime extends Context.Service<Runtime, {
           sessionId,
           cwd: session.cwd,
           system: [...(yield* registries.prompt.get)],
-          messages: Agent.toMessages(branch),
+          messages: Agent.toMessages(branch, yield* loadFiles(branch)),
           tools: [...tools.keys()]
         }
         yield* runHooks("context", context)
@@ -348,7 +378,11 @@ export class Runtime extends Context.Service<Runtime, {
           return Effect.provideService(runTool(sessionId, command), Registries, registries)
         case "Deliver":
           return Effect.forEach(command.inputs, (input) =>
-            append(sessionId, { id: `input/${input.inputId}`, type: "user", data: { text: input.text, inputId: input.inputId } }))
+            append(sessionId, {
+              id: `input/${input.inputId}`,
+              type: "user",
+              data: { text: input.text, inputId: input.inputId, ...(input.attachments?.length ? { attachments: input.attachments } : {}) }
+            }))
         case "EndRun":
           return append(sessionId, {
             id: `${command.runId}/end`,
@@ -517,32 +551,71 @@ export class Runtime extends Context.Service<Runtime, {
     })
 
     // -- API ---------------------------------------------------------------------------
-    const startRun = (sessionId: string, text: string) =>
+    /** Stores the files of a message next to the log; the events keep only references. */
+    const storeAttachments = (inputs: ReadonlyArray<AttachmentInput> | undefined) =>
+      Effect.forEach(inputs ?? [], (input) =>
+        Effect.gen(function*() {
+          const data = typeof input.data === "string" ? new Uint8Array(Buffer.from(input.data, "base64")) : input.data
+          const blob = yield* log.putBlob(input.mediaType, data)
+          return { blob, mediaType: input.mediaType, size: data.byteLength, ...(input.name ? { name: input.name } : {}) }
+        }))
+
+    const startRun = (sessionId: string, text: string, attachments: ReadonlyArray<Agent.Attachment>) =>
       Effect.gen(function*() {
         const runId = randomUUID()
         yield* appendUnlocked(sessionId, { id: `${runId}/start`, type: "run/started", data: { runId } })
-        yield* appendUnlocked(sessionId, { id: `${runId}/prompt`, type: "user", data: { text } })
+        yield* appendUnlocked(sessionId, {
+          id: `${runId}/prompt`,
+          type: "user",
+          data: { text, ...(attachments.length ? { attachments } : {}) }
+        })
       })
 
-    const enqueueUnlocked = (sessionId: string, kind: "steer" | "followUp", text: string) =>
+    const enqueueUnlocked = (
+      sessionId: string,
+      kind: "steer" | "followUp",
+      text: string,
+      inputs: ReadonlyArray<AttachmentInput> | undefined
+    ) =>
       Effect.gen(function*() {
+        const attachments = yield* storeAttachments(inputs)
         const state = yield* load(sessionId)
-        if (!state.run) return yield* startRun(sessionId, text)
+        if (!state.run) return yield* startRun(sessionId, text, attachments)
         const inputId = randomUUID()
-        yield* appendUnlocked(sessionId, { id: `queued/${inputId}`, type: "input/queued", data: { inputId, kind, text } })
+        yield* appendUnlocked(sessionId, {
+          id: `queued/${inputId}`,
+          type: "input/queued",
+          data: { inputId, kind, text, ...(attachments.length ? { attachments } : {}) }
+        })
       })
+
+    /** Appends a change to a queued input if it is still queued (otherwise it was delivered or withdrawn). */
+    const changeQueued = (sessionId: string, inputId: string, event: (n: number) => NewEvent) =>
+      lockOf(sessionId).withPermits(1)(Effect.gen(function*() {
+        const state = yield* load(sessionId)
+        if (!state.queued.some((q) => q.inputId === inputId)) return
+        const n = (yield* log.branch(sessionId)).filter((e) => e.type === "input/changed" || e.type === "input/cancelled").length
+        yield* appendUnlocked(sessionId, event(n))
+      }))
 
     return Runtime.of({
       prompt: (sessionId, text, options) =>
         lockOf(sessionId).withPermits(1)(Effect.gen(function*() {
           const state = yield* load(sessionId)
           if (state.run) {
-            if (options?.streamingBehavior) return yield* enqueueUnlocked(sessionId, options.streamingBehavior, text)
+            if (options?.streamingBehavior) {
+              return yield* enqueueUnlocked(sessionId, options.streamingBehavior, text, options.attachments)
+            }
             return yield* new SessionBusy({ sessionId, runId: state.run.runId })
           }
-          yield* startRun(sessionId, text)
+          yield* startRun(sessionId, text, yield* storeAttachments(options?.attachments))
         })),
-      enqueue: (sessionId, kind, text) => lockOf(sessionId).withPermits(1)(enqueueUnlocked(sessionId, kind, text)),
+      enqueue: (sessionId, kind, text, attachments) =>
+        lockOf(sessionId).withPermits(1)(enqueueUnlocked(sessionId, kind, text, attachments)),
+      requeue: (sessionId, inputId, kind) =>
+        changeQueued(sessionId, inputId, (n) => ({ id: `queued/${inputId}/changed/${n}`, type: "input/changed", data: { inputId, kind } })),
+      cancelQueued: (sessionId, inputId) =>
+        changeQueued(sessionId, inputId, (n) => ({ id: `queued/${inputId}/cancelled/${n}`, type: "input/cancelled", data: { inputId } })),
       abort: (sessionId) =>
         lockOf(sessionId).withPermits(1)(Effect.gen(function*() {
           const state = yield* load(sessionId)

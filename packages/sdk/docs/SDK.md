@@ -131,6 +131,42 @@ const todo = yield* session.projection("todo")   // state an extension folds fro
 yield* session.navigate(events[1]!.id)           // the next prompt branches from there
 ```
 
+### Images
+
+Any message can carry files: bytes or base64. Each is stored once, by content hash: with
+`Storage.sqlite("…/pie.db")` the bytes are a file in `…/attachments/` and the database keeps
+the reference; the events only carry that reference. The model gets them as file parts, so
+it needs a model that takes images (DeepSeek v4.1 Flash through OpenCode Go does).
+
+```ts
+yield* session.prompt("what is wrong in this screenshot?", {
+  attachments: [{ mediaType: "image/png", data: pngBytes, name: "screen.png" }]
+})
+const user = (yield* session.events).find((e) => e.type === "user")!
+const file = yield* session.attachment(user.data.attachments[0].blob)   // { mediaType, data } to show it
+```
+
+### Messages sent while the agent works
+
+A `steer` is delivered after the current tool calls; a `followUp`, when the run would
+otherwise stop. Until then they are queued, and you can act on them:
+
+```ts
+const queued = yield* session.queued              // [{ inputId, kind, text, attachments }]
+yield* session.deliverNow(queued[0].inputId)      // a follow-up becomes a steer: the next step sees it
+yield* session.cancelQueued(queued[1].inputId)    // withdrawn: the model never sees it
+```
+
+Both are events in the log (`input/changed`, `input/cancelled`), so a page that renders the
+log can show the queue, and a restart keeps it.
+
+### The list of sessions
+
+```ts
+const sessions = yield* pie.list   // most recent first
+// [{ id, cwd, model, title, updatedAt, status: "running" | "idle", lastOutcome, ... }]
+```
+
 | `Pie.layer` option | |
 |---|---|
 | `plugins` | Extensions, in order. An extension or `{ plugin, options }` |

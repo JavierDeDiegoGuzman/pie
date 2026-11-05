@@ -39,8 +39,10 @@ Core events:
 
 | Event | Meaning |
 |---|---|
-| `run/started`, `user` | A run starts with the prompt |
+| `run/started`, `user` | A run starts with the prompt. `user` (and `input/queued`) may reference attached files, stored once by hash: the file in `attachments/` next to the database, the reference in `pie_attachments` |
 | `input/queued` | A steer or followUp waiting; `decide` delivers it as `user` at the right time |
+| `input/changed` | A queued input now delivers as a steer or a followUp (`session.deliverNow`) |
+| `input/cancelled` | A queued input withdrawn before delivery (`session.cancelQueued`) |
 | `model/requested` | What was sent to the model: system prompt and offered tools («model-visible means logged»); the messages are the preceding branch |
 | `model/responded` / `model/failed` | Full response, or failure with a retry time |
 | `tool/started` / `tool/finished` | A tool started / finished |

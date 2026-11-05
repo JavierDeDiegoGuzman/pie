@@ -9,7 +9,8 @@ import { codingTools, contextFiles, opencodeGo, systemPrompt } from "@pie-agent/
 import { Plugin } from "pie-agent"
 
 export const MODEL = process.env.PIE_MODEL ?? "opencode-go/deepseek-v4.1-flash"
-const APP_DIR = path.resolve(import.meta.dirname, "..")
+// The working copy (not the release that is running): that is what the agent edits.
+const APP_DIR = path.resolve(process.env.PIE_SOURCE ?? path.join(import.meta.dirname, ".."))
 
 const self = Plugin.define({
   id: "self-app",

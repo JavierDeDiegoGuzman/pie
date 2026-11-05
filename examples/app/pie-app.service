@@ -6,7 +6,9 @@ Description=Pie app (a chat whose agent can change and restart it)
 After=network-online.target
 
 [Service]
-WorkingDirectory=%h/pie-app
+# The service runs the last applied commit (.release/), never the working copy the agent edits.
+WorkingDirectory=%h/pie-app/.release
+Environment=PIE_SOURCE=%h/pie-app
 ExecStart=/usr/bin/env node --no-warnings src/main.ts
 Environment=HOST=127.0.0.1
 Environment=PORT=4400

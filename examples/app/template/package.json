@@ -7,7 +7,8 @@
     "build": "node web/build.mjs",
     "check": "tsc --noEmit -p . && node web/build.mjs && node --no-warnings src/main.ts --smoke",
     "start": "node --no-warnings src/main.ts",
-    "apply": "bash scripts/apply.sh"
+    "apply": "bash scripts/apply.sh",
+    "serve": "cd .release && PIE_SOURCE=.. node --no-warnings src/main.ts"
   },
   "dependencies": {
     "@effect/platform-node": "4.1.2",

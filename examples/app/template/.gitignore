@@ -2,3 +2,6 @@ node_modules
 .data
 .vendor
 web/dist
+.release
+.release.new
+.release.old

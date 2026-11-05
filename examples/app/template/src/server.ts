@@ -18,7 +18,10 @@ import { Pie } from "pie-agent"
 import { MODEL } from "./agent.ts"
 
 export interface ServeOptions {
+  /** The running code: `web/dist` is served from here. */
   readonly appDir: string
+  /** The working copy the agent edits: new threads work there. */
+  readonly sourceDir: string
   readonly host: string
   readonly port: number
 }
@@ -91,7 +94,7 @@ export const serve = (options: ServeOptions) =>
       }
       if (url.pathname === "/api/threads") {
         if (method === "POST") {
-          const session = await run(pie.create({ cwd: options.appDir, model: MODEL }))
+          const session = await run(pie.create({ cwd: options.sourceDir, model: MODEL }))
           return json(res, 200, { id: session.id })
         }
         return json(res, 200, await run(threads))

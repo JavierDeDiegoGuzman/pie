@@ -17,7 +17,8 @@ and `HOST`, `systemctl --user enable --now pie-app`).
 | Piece | |
 |---|---|
 | `template/src/agent.ts` | Pie with the official plugins (OpenCode Go, prompt, AGENTS.md, read/write/edit/bash) and a short prompt that tells the agent it is this app. No extra tools |
-| `template/scripts/apply.sh` | `npm run apply`: check, commit, restart. The agent runs it with bash |
+| `template/scripts/apply.sh` | `npm run apply`: check, commit, release, restart. The agent runs it with bash |
+| `template/scripts/release.sh` | Copies the last commit to `.release/`: the service runs that, never the working copy |
 | `template/src/server.ts` | The page, a JSON API over threads and SSE with every event |
 | `template/web/src/app.tsx` | The page: one chat and a button for the list of threads |
 | `template/AGENTS.md` | Where things are, for the agent |
@@ -30,15 +31,19 @@ The cycle of a change:
    check`: types, the web build, and a boot test of the whole app on a free
    port with an in-memory database. If it fails, nothing is applied and the
    agent reads the errors in the command's output.
-4. If it passes: `git commit`, and a second later (from its own session, so
+4. If it passes: `git commit`, a copy of that commit in `.release/` (with its
+   web build), and a second later (from its own session, so
    bash returns first and its result is in the log) the app's process gets a
    SIGTERM.
-5. systemd starts the new version. Pie is durable, so the agent's run
-   continues in the new process.
+5. systemd starts the new version from `.release/`. Pie is durable, so the
+   agent's run continues in the new process.
 6. The open page notices the new version when its live connection comes back
    and reloads itself.
 
-A crash, a `kill -9` or a reboot go through step 5 too.
+A crash, a `kill -9`, a reboot or a manual `systemctl restart` go through step
+5 too, and always start the last applied commit: edits the agent has not
+applied never run. (Before `.release/`, a restart in the middle of an edit
+loaded the half-written code and the app crash-looped.)
 
 ## Results (5 Nov 2026, DeepSeek v4.1 Flash)
 
