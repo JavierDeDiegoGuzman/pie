@@ -43,8 +43,7 @@ runs resume from the log. A program can let its agent do it:
 | `pie_sessions` | cwd, initial model and leaf of the current branch |
 | `pie_cursors` | How far each reaction has processed in each session |
 | `pie_workflow` | Journal of the Effect workflows: executions, activities, deferreds, clocks, results |
-| `pie_attachments` | Files attached to messages: hash, type, size and the name of the file in `attachments/` next to the database (the events reference the hash) |
-| `pie_meta` | Which process opened the database last (the write that takes the exclusive lock) |
+| `pie_attachments` | Files attached to messages: hash, type, size and the name of the file in the attachments store (by default `attachments/` next to the database; the events reference the hash) |
 
 Streaming deltas are never stored: they go through `session.live`. Extension
 projections are not stored either: they are recomputed by folding the branch.

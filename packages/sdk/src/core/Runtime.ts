@@ -48,6 +48,9 @@ const withoutNulls = (params: unknown) =>
     ? Object.fromEntries(Object.entries(params).filter(([, v]) => v !== null))
     : params
 
+/** Events that change a queued input (their count numbers the next one, so each id is unique). */
+const QUEUE_CHANGES = new Set(["input/changed", "input/edited", "input/cancelled"])
+
 const errorMessage = (cause: Cause.Cause<unknown>) => {
   const error = Cause.squash(cause)
   return error instanceof Error ? error.message : typeof error === "string" ? error : Cause.pretty(cause)
@@ -77,6 +80,13 @@ export class Runtime extends Context.Service<Runtime, {
   ) => Effect.Effect<void, SessionNotFound>
   /** Changes how a queued input is delivered (`steer`: after the current tool calls). No-op if it was delivered. */
   readonly requeue: (sessionId: string, inputId: string, kind: "steer" | "followUp") => Effect.Effect<void, SessionNotFound>
+  /** Replaces the text of a queued input (and its files, if `attachments` is given). No-op if it was delivered. */
+  readonly editQueued: (
+    sessionId: string,
+    inputId: string,
+    text: string,
+    attachments?: ReadonlyArray<AttachmentInput>
+  ) => Effect.Effect<void, SessionNotFound>
   /** Withdraws a queued input that has not been delivered yet. */
   readonly cancelQueued: (sessionId: string, inputId: string) => Effect.Effect<void, SessionNotFound>
   readonly abort: (sessionId: string) => Effect.Effect<void, SessionNotFound>
@@ -594,7 +604,7 @@ export class Runtime extends Context.Service<Runtime, {
       lockOf(sessionId).withPermits(1)(Effect.gen(function*() {
         const state = yield* load(sessionId)
         if (!state.queued.some((q) => q.inputId === inputId)) return
-        const n = (yield* log.branch(sessionId)).filter((e) => e.type === "input/changed" || e.type === "input/cancelled").length
+        const n = (yield* log.branch(sessionId)).filter((e) => QUEUE_CHANGES.has(e.type)).length
         yield* appendUnlocked(sessionId, event(n))
       }))
 
@@ -614,6 +624,16 @@ export class Runtime extends Context.Service<Runtime, {
         lockOf(sessionId).withPermits(1)(enqueueUnlocked(sessionId, kind, text, attachments)),
       requeue: (sessionId, inputId, kind) =>
         changeQueued(sessionId, inputId, (n) => ({ id: `queued/${inputId}/changed/${n}`, type: "input/changed", data: { inputId, kind } })),
+      editQueued: (sessionId, inputId, text, inputs) =>
+        Effect.gen(function*() {
+          // Files are stored before taking the lock; if the input was delivered meanwhile they are just unused.
+          const attachments = inputs === undefined ? undefined : yield* storeAttachments(inputs)
+          yield* changeQueued(sessionId, inputId, (n) => ({
+            id: `queued/${inputId}/edited/${n}`,
+            type: "input/edited",
+            data: { inputId, text, ...(attachments === undefined ? {} : { attachments }) }
+          }))
+        }),
       cancelQueued: (sessionId, inputId) =>
         changeQueued(sessionId, inputId, (n) => ({ id: `queued/${inputId}/cancelled/${n}`, type: "input/cancelled", data: { inputId } })),
       abort: (sessionId) =>

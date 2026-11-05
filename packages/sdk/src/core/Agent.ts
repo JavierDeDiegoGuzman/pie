@@ -60,6 +60,12 @@ export interface CoreEvents {
   }
   /** A queued input changes how it is delivered (e.g. a follow-up becomes a steer: "deliver it now"). */
   readonly "input/changed": { readonly inputId: string; readonly kind: "steer" | "followUp" }
+  /** A queued input gets a new text (and new files, when `attachments` is present) before it was delivered. */
+  readonly "input/edited": {
+    readonly inputId: string
+    readonly text: string
+    readonly attachments?: ReadonlyArray<Attachment> | undefined
+  }
   /** A queued input is withdrawn before it was delivered. */
   readonly "input/cancelled": { readonly inputId: string }
   /** What was sent to the model ("model-visible means logged"); messages are the branch before it. */
@@ -166,13 +172,27 @@ export const evolve = (state: AgentState, event: LogEvent): AgentState => {
     }
     case "user": {
       const { inputId } = event.data as CoreEvents["user"]
-      return inputId === undefined ? state : { ...state, queued: state.queued.filter((q) => q.inputId !== inputId) }
+      if (inputId === undefined) return state
+      // A delivered input is something new for the model to answer: the run goes on.
+      return { ...state, queued: state.queued.filter((q) => q.inputId !== inputId), run: run && { ...run, expectsMore: true } }
     }
     case "input/queued":
       return { ...state, queued: [...state.queued, event.data as CoreEvents["input/queued"]] }
     case "input/changed": {
       const { inputId, kind } = event.data as CoreEvents["input/changed"]
       return { ...state, queued: state.queued.map((q) => (q.inputId === inputId ? { ...q, kind } : q)) }
+    }
+    case "input/edited": {
+      const { attachments, inputId, text } = event.data as CoreEvents["input/edited"]
+      return {
+        ...state,
+        queued: state.queued.map((q) => {
+          if (q.inputId !== inputId) return q
+          if (attachments === undefined) return { ...q, text }
+          const { attachments: _, ...rest } = q
+          return attachments.length ? { ...rest, text, attachments } : { ...rest, text }
+        })
+      }
     }
     case "input/cancelled": {
       const { inputId } = event.data as CoreEvents["input/cancelled"]
@@ -280,7 +300,8 @@ export const decide = (state: AgentState, now: number): ReadonlyArray<Command> =
   if (toolCommands.length > 0) return toolCommands
 
   // The step is complete: deliver what is due, then ask the model again or finish.
-  const due = state.queued.filter((q) => q.kind === (run.expectsMore ? "steer" : "followUp"))
+  // Mid-run only steers are due; when the run would stop, everything still queued is (a late steer too).
+  const due = run.expectsMore ? state.queued.filter((q) => q.kind === "steer") : state.queued
   if (due.length > 0) return [{ _tag: "Deliver", key: `deliver/${due.map((q) => q.inputId).join(",")}`, inputs: due }]
   if (!run.expectsMore) return end("completed")
   const callId = `${run.runId}/call/${run.turn}`

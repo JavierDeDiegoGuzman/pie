@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest"
 import { Deferred, Effect, Schema } from "effect"
 import * as path from "node:path"
 import * as fs from "node:fs"
-import { defineTool, type LogEvent, Pie, Plugin } from "../src/index.ts"
+import { Agent, defineTool, type LogEvent, Pie, Plugin } from "../src/index.ts"
 import { testHome } from "./support/home.ts"
 import { FAKE_MODEL, fakeModelPlugin, HANG, last, lastUserText, type Reply, toolResults } from "./support/fake-model.ts"
 
@@ -77,6 +77,9 @@ describe("agent loop over the event log", () => {
         const events = yield* session.events
         expect(data<{ text: string }>(events, "user").map((u) => u.text)).toEqual(["first", "and then this"])
         expect(data(events, "run/ended")).toHaveLength(1)
+        // The model answers the follow-up before the run ends.
+        const types = events.map((e) => e.type)
+        expect(types.lastIndexOf("model/responded")).toBeGreaterThan(types.lastIndexOf("user"))
       }),
       [fakeModelPlugin(mathScript), addTool]
     ))
@@ -322,4 +325,24 @@ describe("agent loop over the event log", () => {
         [fakeModelPlugin(() => ({ tools: [{ name: "hang", params: {} }] })), stuck]
       )
     }))
+})
+
+describe("decide", () => {
+  const event = (type: string, data: unknown, i: number): LogEvent =>
+    ({ id: `e${i}`, sessionId: "s", parentId: null, seq: i, type, data, createdAt: 0 }) as LogEvent
+  const fold = (...events: Array<[string, unknown]>) => Agent.fold("m", events.map(([type, data], i) => event(type, data, i)))
+
+  it("a steer that arrives as the model finishes without tools is delivered, not left queued", () => {
+    const state = fold(
+      ["run/started", { runId: "r" }],
+      ["user", { text: "hi" }],
+      ["model/requested", { callId: "r/call/0", turn: 0, attempt: 1, model: "m", system: "", tools: [] }],
+      ["input/queued", { inputId: "i", kind: "steer", text: "also this" }],
+      ["model/responded", { callId: "r/call/0", turn: 0, text: "done", reasoning: "", toolCalls: [], finishReason: "stop", model: "m", usage: {} }]
+    )
+    expect(Agent.decide(state, 0).map((c) => c._tag)).toEqual(["Deliver"])
+    // Once delivered, the model is asked again instead of ending the run.
+    const after = Agent.evolve(state, event("user", { text: "also this", inputId: "i" }, 9))
+    expect(Agent.decide(after, 0).map((c) => c._tag)).toEqual(["CallModel"])
+  })
 })

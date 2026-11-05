@@ -28,6 +28,10 @@ changes itself by restarting, which is safe at any moment.
 - Images (any file) in messages: `prompt`, `steer` and `followUp` take `attachments` (bytes or
   base64). Stored once by hash: the bytes in `attachments/` next to the database, the reference in
   `pie_attachments`. The model gets them as file parts; `session.attachment(blob)` reads them back.
+- `Pie.layer({ attachments })`: where attached files go, like `storage` for the database.
+  `Attachments.folder(dir)`, `Attachments.memory`, or any layer that provides `Attachments`.
+- `session.editQueued(inputId, text, { attachments })`: rewrite a queued message before it is
+  delivered (event `input/edited`).
 - The queue of messages sent while a run is active: `session.queued`, `session.deliverNow(inputId)`
   (a follow-up becomes a steer) and `session.cancelQueued(inputId)`, as the events `input/changed`
   and `input/cancelled`.
@@ -44,6 +48,14 @@ changes itself by restarting, which is safe at any moment.
 - `ctx.pie` and `ctx.ui`, the `web`, `web-chat` and `self` plugins, and the `pie` CLI
   (`@pie-agent/cli`).
 - Undo: snapshots, the configuration log, rollback, the supervisor and `reload: "restart"`.
+
+### Fixed
+
+- A delivered `followUp` (or a steer delivered when the run would stop) ended the run without the
+  model answering it. Now the model is called again; a steer that arrives just as the model
+  finishes without tools is delivered instead of staying queued.
+- The exclusive lock on the database is taken with an empty `BEGIN EXCLUSIVE` transaction; the
+  `pie_meta` table, written only to take it, is gone.
 
 ## [0.1.0] - 2026-11-04
 

@@ -10,7 +10,7 @@
 import { createHash } from "node:crypto"
 import { Context, Data, Effect } from "effect"
 import { SqlClient } from "effect/sql"
-import { Attachments } from "./Storage.ts"
+import { Attachments } from "./Attachments.ts"
 
 export interface LogEvent<Type extends string = string, Data = unknown> {
   readonly id: string

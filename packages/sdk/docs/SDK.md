@@ -146,6 +146,21 @@ const user = (yield* session.events).find((e) => e.type === "user")!
 const file = yield* session.attachment(user.data.attachments[0].blob)   // { mediaType, data } to show it
 ```
 
+Where the bytes go is its own choice, like the database. `attachments` replaces the store
+`storage` brings: another folder, or your own layer (S3, R2...) with two operations.
+
+```ts
+import { Attachments } from "pie-agent"
+
+Pie.layer({ storage: Storage.sqlite(".data/pie.db"), attachments: Attachments.folder("/mnt/files") })
+
+const bucket = Layer.succeed(Attachments.Attachments, Attachments.Attachments.of({
+  write: (hash, data) => putObject(`pie/${hash}`, data).pipe(Effect.as(`pie/${hash}`)),  // returns the name to keep
+  read: (name) => getObject(name)                                                         // bytes, or undefined
+}))
+Pie.layer({ storage: Storage.sqlite(".data/pie.db"), attachments: bucket })
+```
+
 ### Messages sent while the agent works
 
 A `steer` is delivered after the current tool calls; a `followUp`, when the run would
@@ -154,11 +169,13 @@ otherwise stop. Until then they are queued, and you can act on them:
 ```ts
 const queued = yield* session.queued              // [{ inputId, kind, text, attachments }]
 yield* session.deliverNow(queued[0].inputId)      // a follow-up becomes a steer: the next step sees it
-yield* session.cancelQueued(queued[1].inputId)    // withdrawn: the model never sees it
+yield* session.editQueued(queued[1].inputId, "fixed typo")   // new text; { attachments } replaces its files
+yield* session.cancelQueued(queued[2].inputId)    // withdrawn: the model never sees it
 ```
 
-Both are events in the log (`input/changed`, `input/cancelled`), so a page that renders the
-log can show the queue, and a restart keeps it.
+They are events in the log (`input/changed`, `input/edited`, `input/cancelled`), so a page
+that renders the log can show the queue, and a restart keeps it. On a message already
+delivered they do nothing.
 
 ### The list of sessions
 
@@ -171,5 +188,6 @@ const sessions = yield* pie.list   // most recent first
 |---|---|
 | `plugins` | Extensions, in order. An extension or `{ plugin, options }` |
 | `storage` | `Storage.sqlite(file)` (durable, exclusive) or `Storage.memory` (the default) |
+| `attachments` | Where attached files go, instead of the store `storage` brings: `Attachments.folder(dir)`, `Attachments.memory` or your own layer |
 
 Next: [write an extension](PLUGINS.md), or read how [events and durability](EVENTS.md) work.

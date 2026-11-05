@@ -22,6 +22,7 @@ import * as Plugin from "./core/Plugin.ts"
 import { foldProjection, PluginHost } from "./core/PluginHost.ts"
 import { Registries } from "./core/Registry.ts"
 import { type AttachmentInput, type PromptOptions, Runtime, type SessionBusy } from "./core/Runtime.ts"
+import type * as Attachments from "./core/Attachments.ts"
 import * as Storage from "./core/Storage.ts"
 
 export type { AttachmentInput, PromptOptions } from "./core/Runtime.ts"
@@ -56,6 +57,12 @@ export interface Session {
   readonly queued: Effect.Effect<ReadonlyArray<QueuedInput>>
   /** Delivers a queued message at the next step (it becomes a steer) instead of when the run would stop. */
   readonly deliverNow: (inputId: string) => Effect.Effect<void>
+  /** Rewrites a queued message before it is delivered; `attachments`, if given, replace its files. */
+  readonly editQueued: (
+    inputId: string,
+    text: string,
+    options?: { readonly attachments?: ReadonlyArray<AttachmentInput> }
+  ) => Effect.Effect<void>
   /** Withdraws a queued message that has not been delivered yet. */
   readonly cancelQueued: (inputId: string) => Effect.Effect<void>
   /** The data of a file attached to a message (`attachments[].blob` of a `user` or `input/queued` event). */
@@ -97,6 +104,7 @@ const make = Effect.gen(function*() {
     followUp: (text, options) => Effect.orDie(runtime.enqueue(id, "followUp", text, options?.attachments)),
     queued: Effect.map(Effect.orDie(runtime.state(id)), (state) => state.queued),
     deliverNow: (inputId) => Effect.orDie(runtime.requeue(id, inputId, "steer")),
+    editQueued: (inputId, text, options) => Effect.orDie(runtime.editQueued(id, inputId, text, options?.attachments)),
     cancelQueued: (inputId) => Effect.orDie(runtime.cancelQueued(id, inputId)),
     attachment: (blob) => log.getBlob(blob),
     abort: Effect.orDie(runtime.abort(id)),
@@ -150,6 +158,12 @@ export interface LayerOptions {
   readonly plugins?: ReadonlyArray<PluginEntry>
   /** Where sessions are stored. Default Storage.memory: nothing survives the process. */
   readonly storage?: Storage.Storage
+  /**
+   * Where the bytes of attached files go, instead of the store `storage` brings
+   * (a folder next to the SQLite file, or memory): `Attachments.folder(dir)`, or
+   * any layer that provides `Attachments` (S3, R2...).
+   */
+  readonly attachments?: Layer.Layer<Attachments.Attachments>
 }
 
 /** Root of the SDK package. */
@@ -179,6 +193,16 @@ const sdkGuard = Plugin.define({
       }))
 })
 
+/** The storage, with its attachments store replaced by `attachments` if given. */
+const withAttachments = (storage: Storage.Storage, attachments: Layer.Layer<Attachments.Attachments> | undefined): Storage.Storage =>
+  attachments === undefined
+    ? storage
+    : Layer.effectContext(Effect.gen(function*() {
+      const base = yield* Layer.build(storage)
+      const store = yield* Layer.build(attachments)
+      return Context.merge(base, store)
+    }))
+
 export const layer = (options: LayerOptions = {}) => {
   const entries = [sdkGuard, ...(options.plugins ?? [])].map((p) => ("plugin" in p ? p : { plugin: p }))
 
@@ -205,7 +229,7 @@ export const layer = (options: LayerOptions = {}) => {
     Layer.provideMerge(Layer.effect(Runtime, Runtime.make)),
     Layer.provideMerge(Core.layer),
     Layer.provideMerge(base),
-    Layer.provideMerge(options.storage ?? Storage.memory),
+    Layer.provideMerge(withAttachments(options.storage ?? Storage.memory, options.attachments)),
     Layer.provideMerge(NodeServices.layer)
   )
 }

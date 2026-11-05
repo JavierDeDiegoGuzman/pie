@@ -1,9 +1,9 @@
 import { describe, expect, it } from "@effect/vitest"
-import { Deferred, Effect, Schema } from "effect"
+import { Deferred, Effect, Layer, Schema } from "effect"
 import type { Prompt } from "effect/ai"
 import * as fs from "node:fs"
 import * as path from "node:path"
-import { defineTool, type LogEvent, Pie, Plugin, Storage } from "../src/index.ts"
+import { Attachments, defineTool, type LogEvent, Pie, Plugin, Storage } from "../src/index.ts"
 import { testHome } from "./support/home.ts"
 import { FAKE_MODEL, fakeModelPlugin, last, lastUserText, type Reply } from "./support/fake-model.ts"
 
@@ -103,6 +103,36 @@ describe("attachments on disk", () => {
     }))
 })
 
+describe("your own attachments store", () => {
+  it.live("Pie.layer({ attachments }) replaces the folder next to the database", () =>
+    Effect.gen(function*() {
+      const dir = testHome("own-store")
+      const stored = new Map<string, Uint8Array>()
+      const store = Layer.succeed(Attachments.Attachments, Attachments.Attachments.of({
+        write: (hash, data) => Effect.sync(() => (stored.set(`bucket/${hash}`, data), `bucket/${hash}`)),
+        read: (name) => Effect.sync(() => stored.get(name))
+      }))
+      const png = new Uint8Array([137, 80, 78, 71, 1])
+      const file = yield* Effect.gen(function*() {
+        const session = yield* (yield* Pie.Pie).create({ cwd: dir, model: FAKE_MODEL })
+        yield* session.prompt("look", { attachments: [{ mediaType: "image/png", data: png }] })
+        yield* session.awaitIdle
+        const user = (yield* session.events).find((e) => e.type === "user")!
+        return yield* session.attachment((user.data as any).attachments[0].blob)
+      }).pipe(
+        Effect.provide(Pie.layer({
+          storage: Storage.sqlite(path.join(dir, "pie.db")),
+          attachments: store,
+          plugins: [fakeModelPlugin(() => ({ text: "ok" }))]
+        })),
+        Effect.scoped
+      )
+      expect([...stored.keys()]).toEqual([`bucket/${file!.hash}`])
+      expect([...file!.data]).toEqual([...png])
+      expect(fs.existsSync(path.join(dir, "attachments"))).toBe(false)
+    }))
+})
+
 describe("queued messages", () => {
   it.live("listed while the agent works; one delivered now (at the next step), one withdrawn", () =>
     Effect.gen(function*() {
@@ -137,6 +167,47 @@ describe("queued messages", () => {
           expect(yield* session.queued).toEqual([])
           // Acting on an input that is gone does nothing.
           yield* session.cancelQueued(queued[0]!.inputId)
+        }),
+        [fakeModelPlugin(script), plugin]
+      )
+    }))
+})
+
+describe("editing a queued message", () => {
+  it.live("the model sees the new text and files; once delivered, an edit does nothing", () =>
+    Effect.gen(function*() {
+      const { gate, plugin, started } = yield* waiting
+      const seen: Array<{ text: string; files: number }> = []
+      const script = (messages: Messages): Reply => {
+        const user = last(messages)
+        const files = user.role === "user" && Array.isArray(user.content) ? user.content.filter((p) => p.type === "file").length : 0
+        seen.push({ text: lastUserText(messages), files })
+        return user.role === "user" && lastUserText(messages) === "go" ? { tools: [{ name: "wait", params: {} }] } : { text: "ok" }
+      }
+      const png = new Uint8Array([137, 80, 78, 71, 2])
+      yield* run(
+        Effect.gen(function*() {
+          const session = yield* (yield* Pie.Pie).create({ cwd: "/repo", model: FAKE_MODEL })
+          yield* session.prompt("go")
+          yield* Deferred.await(started)
+          yield* session.followUp("tpyo")
+          const [queued] = yield* session.queued
+          yield* session.editQueued(queued!.inputId, "typo fixed, and a picture", {
+            attachments: [{ mediaType: "image/png", data: png }]
+          })
+          expect((yield* session.queued).map((q) => [q.text, q.kind, q.attachments?.length])).toEqual([
+            ["typo fixed, and a picture", "followUp", 1]
+          ])
+          // Without attachments the files stay as they are.
+          yield* session.editQueued(queued!.inputId, "typo fixed")
+          expect((yield* session.queued)[0]).toMatchObject({ text: "typo fixed", attachments: [{ mediaType: "image/png" }] })
+
+          yield* Deferred.succeed(gate, undefined)
+          yield* session.awaitIdle
+          expect(seen.at(-1)).toEqual({ text: "typo fixed", files: 1 })
+          expect(userTexts(yield* session.events)).toEqual(["go", "typo fixed"])
+          yield* session.editQueued(queued!.inputId, "too late")
+          expect(userTexts(yield* session.events)).toEqual(["go", "typo fixed"])
         }),
         [fakeModelPlugin(script), plugin]
       )

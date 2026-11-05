@@ -10,7 +10,7 @@ import { testHome } from "./support/home.ts"
 const open = (db: string) =>
   Effect.gen(function*() {
     const sql = yield* SqlClient.SqlClient
-    return yield* Effect.orDie(sql`SELECT value FROM pie_meta WHERE key = 'opened_by'`)
+    return yield* Effect.orDie(sql`SELECT count(*) AS n FROM sqlite_master`)
   }).pipe(Effect.provide(Layer.fresh(Storage.sqlite(db))), Effect.scoped)
 
 const holder = (db: string) =>
@@ -39,7 +39,7 @@ describe("one process per database", () => {
       }
       // The operating system released the lock with the process.
       const rows = yield* open(db)
-      expect(rows).toEqual([{ value: String(process.pid) }])
+      expect(rows).toHaveLength(1)
       expect(fs.existsSync(db)).toBe(true)
     }), 30_000)
 })
